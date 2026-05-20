@@ -1,0 +1,6 @@
+interface:
+  display_name: "CX O&G Well Research"
+  short_description: "Find wells and build full CX O&G well dossiers."
+  default_prompt: "Use $cx-og-well-research to find wells by keyword or build a full API well dossier."
+policy:
+  allow_implicit_invocation: true
