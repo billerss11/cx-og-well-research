@@ -88,6 +88,23 @@ def test_production_time_series_has_standard_plot_schema(module):
     }.issubset(first_point)
 
 
+def test_completion_reconciliation_keeps_production_and_eor_separate(module):
+    dossier = module.build_dossier(
+        DATA_DIR,
+        "427064030600",
+        limit=5,
+        min_step=100.0,
+        include_completion_reconcile=True,
+    )
+    reconciliation = dossier["sections"]["completion_reconciliation"]
+    assert reconciliation["production"]["records"] > 0
+    assert reconciliation["eor"]["records"] > 0
+    assert "004" in reconciliation["production"]["completion_names"]
+    assert "S3" in reconciliation["eor"]["intervals"]
+    assert "production_interval_codes_not_in_eor" in reconciliation["comparison"]
+    assert "eor_interval_codes_not_in_production" in reconciliation["comparison"]
+
+
 def test_field_audit_ranks_wells(module):
     audit = module.build_field_audit(DATA_DIR, "MADISON", 5)
     assert audit["field_query"] == "MADISON"
@@ -111,6 +128,7 @@ def main() -> int:
     test_data_dir_validation_and_duckdb_api_query(module)
     test_dossier_can_include_production_casing_compare_and_timeline(module)
     test_production_time_series_has_standard_plot_schema(module)
+    test_completion_reconciliation_keeps_production_and_eor_separate(module)
     test_field_audit_ranks_wells(module)
     test_emit_result_can_save_json_for_rendering(module)
     print("feature tests passed")

@@ -78,6 +78,12 @@ Plot-ready production JSON:
 conda run -n codex_env python C:\Users\17999\.codex\skills\cx-og-well-research\scripts\build_well_research.py --api 608054000500 --production-group-by "Production Interval Code" --format json --output production_608054000500.json --data-dir J:\cx_coding_project_unsyc\python\CX_O-G_APP\data
 ```
 
+Completion reconciliation:
+
+```powershell
+conda run -n codex_env python C:\Users\17999\.codex\skills\cx-og-well-research\scripts\build_well_research.py --api 427064030600 --completion-reconcile --format json --data-dir J:\cx_coding_project_unsyc\python\CX_O-G_APP\data
+```
+
 More rows:
 
 ```powershell
@@ -122,6 +128,7 @@ Optional analysis sections:
 
 - `--include-production`: production date range, totals, peak months, status codes, completion count.
 - `--production-group-by ...`: plot-ready monthly production time series grouped by `Completion Name`, `Product Code`, or `Production Interval Code`.
+- `--completion-reconcile`: side-by-side production completion identifiers vs EOR physical/reservoir completion records.
 - `--casing-compare`: latest APD planned casing vs latest WAR actual casing/tubular evidence.
 - `--timeline`: chronological events from borehole, APD, WAR, casing, logging, BHP, EOR, perforations, and production.
 - `--incident`: preset keyword bundles such as `stuck-pipe`, `lost-circulation`, `kick`, `fishing`, `cementing`, and `logging`.
@@ -133,6 +140,7 @@ Optional analysis sections:
 - Then provide section-by-section evidence.
 - Keep planned APD casing separate from actual WAR casing/tubular records.
 - State when records are absent.
+- Do not treat production `Completion Name` and EOR `SN_EOR_WELL_COMP`/`INTERVAL` as identical; use `--completion-reconcile` when users ask how they relate.
 - For large tables, summarize by default and offer `--full`/JSON for more rows.
 - For plotting, use `--format json --output ...`; the production time series uses neutral fields like `period_start`, `group`, `oil_volume`, `gas_volume`, `water_volume`, `days_on_prod`, and derived daily rates.
 - Dates and depths should keep source units from the data; trajectory/casing depths are feet.

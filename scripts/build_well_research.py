@@ -40,6 +40,7 @@ DATASETS = {
     "eor_main": "df_eor_mv_eor_mainquery.parquet",
     "eor_geomarkers": "df_eor_mv_eor_geomarkers.parquet",
     "eor_completions": "df_eor_mv_eor_completions.parquet",
+    "eor_completions_prop": "df_eor_mv_eor_completionsprop.parquet",
     "eor_perf": "df_eor_mv_eor_perf_intervals.parquet",
     "apd_main": "df_apd_main.parquet",
     "apd_casing_intervals": "df_apd_casing_intervals.parquet",
@@ -449,6 +450,7 @@ def build_dossier(
     keyword: str | None = None,
     include_production: bool = False,
     production_group_by: dict[str, str] | None = None,
+    include_completion_reconcile: bool = False,
     include_casing_compare: bool = False,
     include_timeline: bool = False,
 ) -> dict[str, Any]:
@@ -537,6 +539,8 @@ def build_dossier(
 
     if include_production or production_group_by:
         sections["production"] = production
+    if include_completion_reconcile:
+        sections["completion_reconciliation"] = build_completion_reconciliation(data_dir, api, limit)
     if include_casing_compare:
         sections["casing_comparison"] = build_casing_comparison(apd_casing, war_casing, limit)
     if include_timeline:
@@ -677,6 +681,107 @@ def build_production_time_series(data_dir: Path, api: str, group_by: dict[str, s
     result["records"] = len(points)
     result["groups"] = sorted({point["group"] for point in points})
     result["points"] = points
+    return result
+
+
+def build_completion_reconciliation(data_dir: Path, api: str, limit: int) -> dict[str, Any]:
+    target = norm_api(api)
+    result = {
+        "records": 0,
+        "interpretation": "Production completions are reporting/allocation identifiers; EOR completions are physical wellbore/reservoir completion records. Compare them side-by-side, do not merge blindly.",
+        "production_source": "df_gom_production.parquet",
+        "eor_sources": [
+            "df_eor_mv_eor_mainquery.parquet",
+            "df_eor_mv_eor_completions.parquet",
+            "df_eor_mv_eor_completionsprop.parquet",
+        ],
+        "production": {
+            "records": 0,
+            "completion_names": [],
+            "product_codes": [],
+            "production_interval_codes": [],
+            "combinations": [],
+        },
+        "eor": {
+            "records": 0,
+            "well_completion_ids": [],
+            "intervals": [],
+            "completion_status_codes": [],
+            "reservoir_names": [],
+            "completion_interval_names": [],
+            "completions": [],
+        },
+        "comparison": {},
+    }
+
+    if parquet_path(data_dir, "production").exists():
+        prod_sql = f"""
+            SELECT
+                coalesce(nullif(trim(CAST("Completion Name" AS VARCHAR)), ''), 'Unspecified') AS completion_name,
+                coalesce(nullif(trim(CAST("Product Code" AS VARCHAR)), ''), 'Unspecified') AS product_code,
+                coalesce(nullif(trim(CAST("Production Interval Code" AS VARCHAR)), ''), 'Unspecified') AS production_interval_code,
+                count(*) AS source_row_count,
+                min(CAST("Production Date" AS DATE)) AS first_production_date,
+                max(CAST("Production Date" AS DATE)) AS last_production_date,
+                sum(coalesce(TRY_CAST("Monthly Oil Volume" AS DOUBLE), 0)) AS oil_volume,
+                sum(coalesce(TRY_CAST("Monthly Gas Volume" AS DOUBLE), 0)) AS gas_volume,
+                sum(coalesce(TRY_CAST("Monthly Water Volume" AS DOUBLE), 0)) AS water_volume
+            FROM {parquet_sql(data_dir, "production")}
+            WHERE {api_match_sql("Api Well Number")}
+            GROUP BY 1, 2, 3
+            ORDER BY 1, 2, 3
+        """
+        prod = duckdb_df(prod_sql, [target, target, target])
+        if not prod.empty:
+            combinations = top_rows(prod, None, limit)
+            result["production"] = {
+                "records": int(len(prod)),
+                "completion_names": sorted(str(v) for v in prod["completion_name"].dropna().unique()),
+                "product_codes": sorted(str(v) for v in prod["product_code"].dropna().unique()),
+                "production_interval_codes": sorted(str(v) for v in prod["production_interval_code"].dropna().unique()),
+                "combinations": combinations,
+            }
+
+    eor_ready = all(parquet_path(data_dir, key).exists() for key in ["eor_main", "eor_completions", "eor_completions_prop"])
+    if eor_ready:
+        eor_sql = f"""
+            SELECT DISTINCT
+                comp.SN_EOR_WELL_COMP AS well_completion_id,
+                comp.INTERVAL AS interval_code,
+                comp.COMP_STATUS_CD AS completion_status_code,
+                prop.COMP_RSVR_NAME AS reservoir_name,
+                prop.COMP_INTERVAL_NAME AS completion_interval_name
+            FROM {parquet_sql(data_dir, "eor_main")} main
+            JOIN {parquet_sql(data_dir, "eor_completions")} comp
+                ON main.SN_EOR = comp.SN_EOR_FK
+            LEFT JOIN {parquet_sql(data_dir, "eor_completions_prop")} prop
+                ON comp.SN_EOR_FK = prop.SN_EOR_FK
+               AND comp.SN_EOR_WELL_COMP = prop.SN_EOR_WELL_COMP
+            WHERE {api_match_sql("API_WELL_NUMBER").replace('"API_WELL_NUMBER"', 'main.API_WELL_NUMBER')}
+            ORDER BY 1, 2
+        """
+        eor = duckdb_df(eor_sql, [target, target, target])
+        if not eor.empty:
+            result["eor"] = {
+                "records": int(len(eor)),
+                "well_completion_ids": sorted(str(v) for v in eor["well_completion_id"].dropna().unique()),
+                "intervals": sorted(str(v) for v in eor["interval_code"].dropna().unique()),
+                "completion_status_codes": sorted(str(v) for v in eor["completion_status_code"].dropna().unique()),
+                "reservoir_names": sorted(str(v) for v in eor["reservoir_name"].dropna().unique()),
+                "completion_interval_names": sorted(str(v) for v in eor["completion_interval_name"].dropna().unique()),
+                "completions": top_rows(eor, None, limit),
+            }
+
+    prod_intervals = set(result["production"]["production_interval_codes"])
+    eor_intervals = set(result["eor"]["intervals"])
+    result["records"] = int(result["production"]["records"] + result["eor"]["records"])
+    result["comparison"] = {
+        "has_production_completion_data": bool(result["production"]["records"]),
+        "has_eor_completion_data": bool(result["eor"]["records"]),
+        "shared_interval_codes": sorted(prod_intervals & eor_intervals),
+        "production_interval_codes_not_in_eor": sorted(prod_intervals - eor_intervals),
+        "eor_interval_codes_not_in_production": sorted(eor_intervals - prod_intervals),
+    }
     return result
 
 
@@ -1155,6 +1260,7 @@ def main() -> int:
     parser.add_argument("--filter", help="Optional text filter for keyword discovery, e.g. field/operator/well.")
     parser.add_argument("--include-production", action="store_true", help="Include production history summary in API dossier.")
     parser.add_argument("--production-group-by", help="Add plot-ready monthly production points grouped by Completion Name, Product Code, or Production Interval Code.")
+    parser.add_argument("--completion-reconcile", action="store_true", help="Compare production completion identifiers with EOR physical completion records.")
     parser.add_argument("--casing-compare", action="store_true", help="Add APD planned vs WAR actual casing comparison.")
     parser.add_argument("--timeline", action="store_true", help="Add chronological timeline across available well evidence.")
     parser.add_argument("--audit", action="store_true", help="Audit data completeness for wells matching --field.")
@@ -1204,6 +1310,7 @@ def main() -> int:
         args.keyword,
         include_production=args.include_production,
         production_group_by=production_group_by,
+        include_completion_reconcile=args.completion_reconcile,
         include_casing_compare=args.casing_compare,
         include_timeline=args.timeline,
     )
