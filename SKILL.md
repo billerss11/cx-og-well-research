@@ -1,15 +1,13 @@
 ---
 name: cx-og-well-research
-description: Use when the user wants to find, research, summarize, audit, or explain Gulf of Mexico wells in the CX O&G APP using keyword discovery plus full single-well dossier output from borehole, WAR, APD/APM attachments, FRS files, trajectory, DLS, EOR, geomarkers, BHP, perforations, casing, and open-hole logging datasets.
+description: Use when the user wants to find, research, summarize, audit, or explain Gulf of Mexico wells from local ready-to-use Parquet datasets, including keyword discovery, single-well dossiers, field audits, WAR, APD/APM attachments, FRS files, trajectory, DLS, EOR, geomarkers, BHP, perforations, casing, production, and open-hole logging data.
 ---
 
 # CX O&G Well Research
 
-Use this skill as the broad research workflow for local CX O&G APP data.
+Use this skill as the broad research workflow for local Gulf of Mexico well Parquet data.
 
-It combines:
-- `Pages/1_GOM_Advanced_File_Search.py`: keyword discovery across WAR remarks, attachments, FRS, and bulk API lookup.
-- `Pages/8_wellbore_info_dashboard.py`: full single-well dossier schema.
+Runtime needs the ready Parquet folder, not the full app source. Repo discovery is only a convenience when running from the CX O&G APP root.
 
 ## Quick Workflow
 
@@ -68,17 +66,37 @@ JSON:
 conda run -n codex_env python C:\Users\17999\.codex\skills\cx-og-well-research\scripts\build_well_research.py --api 608054000500 --format json --data-dir J:\cx_coding_project_unsyc\python\CX_O-G_APP\data
 ```
 
+Save output for another renderer:
+
+```powershell
+conda run -n codex_env python C:\Users\17999\.codex\skills\cx-og-well-research\scripts\build_well_research.py --api 608054000500 --include-production --casing-compare --timeline --format json --output well_608054000500.json --data-dir J:\cx_coding_project_unsyc\python\CX_O-G_APP\data
+```
+
+Plot-ready production JSON:
+
+```powershell
+conda run -n codex_env python C:\Users\17999\.codex\skills\cx-og-well-research\scripts\build_well_research.py --api 608054000500 --production-group-by "Production Interval Code" --format json --output production_608054000500.json --data-dir J:\cx_coding_project_unsyc\python\CX_O-G_APP\data
+```
+
 More rows:
 
 ```powershell
 conda run -n codex_env python C:\Users\17999\.codex\skills\cx-og-well-research\scripts\build_well_research.py --api 608054000500 --full --data-dir J:\cx_coding_project_unsyc\python\CX_O-G_APP\data
 ```
 
-Runtime needs the ready Parquet folder, not the full app source. Repo discovery is only a convenience when running from the CX O&G APP root.
+## HTML Handoff
+
+Do not render HTML inside this skill unless the user explicitly asks. Prefer this workflow:
+
+1. Use this skill to generate evidence as JSON with `--format json --output ...`.
+2. Pass that JSON file to a separate HTML/report/front-end skill or app.
+3. The renderer should preserve source fields, units, dates, data availability counts, and absent-record notes.
+
+Markdown output can also be saved with `--format markdown --output ...` when the renderer is Markdown-first.
 
 ## Dossier Sections
 
-For known API output, include these sections from page 8:
+For known API output, include these sections:
 
 - Borehole details
 - EOR main report
@@ -94,7 +112,7 @@ For known API output, include these sections from page 8:
 - WAR casing by report version
 - Open-hole logging runs/tools
 
-Also include page 1 evidence:
+Also include discovery evidence:
 
 - WAR keyword hits if a keyword was supplied
 - APD/APM attachment records
@@ -103,6 +121,7 @@ Also include page 1 evidence:
 Optional analysis sections:
 
 - `--include-production`: production date range, totals, peak months, status codes, completion count.
+- `--production-group-by ...`: plot-ready monthly production time series grouped by `Completion Name`, `Product Code`, or `Production Interval Code`.
 - `--casing-compare`: latest APD planned casing vs latest WAR actual casing/tubular evidence.
 - `--timeline`: chronological events from borehole, APD, WAR, casing, logging, BHP, EOR, perforations, and production.
 - `--incident`: preset keyword bundles such as `stuck-pipe`, `lost-circulation`, `kick`, `fishing`, `cementing`, and `logging`.
@@ -115,4 +134,5 @@ Optional analysis sections:
 - Keep planned APD casing separate from actual WAR casing/tubular records.
 - State when records are absent.
 - For large tables, summarize by default and offer `--full`/JSON for more rows.
-- Dates and depths should keep source units from the data; page 8 treats trajectory/casing depths as feet.
+- For plotting, use `--format json --output ...`; the production time series uses neutral fields like `period_start`, `group`, `oil_volume`, `gas_volume`, `water_volume`, `days_on_prod`, and derived daily rates.
+- Dates and depths should keep source units from the data; trajectory/casing depths are feet.

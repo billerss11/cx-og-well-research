@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import importlib.util
+import json
+import tempfile
 from pathlib import Path
 
 
@@ -54,6 +56,38 @@ def test_dossier_can_include_production_casing_compare_and_timeline(module):
     assert dossier["sections"]["timeline"]["records"] > 0
 
 
+def test_production_time_series_has_standard_plot_schema(module):
+    group_by = module.normalize_production_group_by("interval code name")
+    dossier = module.build_dossier(
+        DATA_DIR,
+        "608054000500",
+        limit=2,
+        min_step=100.0,
+        production_group_by=group_by,
+    )
+    series = dossier["sections"]["production"]["time_series"]
+    assert series["kind"] == "production_time_series"
+    assert series["grain"] == "monthly"
+    assert series["x"] == {"field": "period_start", "type": "date"}
+    assert series["group_by"]["field"] == "production_interval_code"
+    assert series["records"] > 0
+    assert series["groups"]
+    first_point = series["points"][0]
+    assert {
+        "period_start",
+        "group",
+        "oil_volume",
+        "gas_volume",
+        "water_volume",
+        "injection_volume",
+        "days_on_prod",
+        "oil_rate",
+        "gas_rate",
+        "water_rate",
+        "source_row_count",
+    }.issubset(first_point)
+
+
 def test_field_audit_ranks_wells(module):
     audit = module.build_field_audit(DATA_DIR, "MADISON", 5)
     assert audit["field_query"] == "MADISON"
@@ -62,12 +96,23 @@ def test_field_audit_ranks_wells(module):
     assert "data_score" in audit["wells"][0]
 
 
+def test_emit_result_can_save_json_for_rendering(module):
+    result = {"api_query": "123", "availability": {"boreholes": 1}}
+    with tempfile.TemporaryDirectory() as tmp:
+        output = Path(tmp) / "well.json"
+        module.emit_result(result, "json", output, module.print_dossier)
+        saved = json.loads(output.read_text(encoding="utf-8"))
+    assert saved == result
+
+
 def main() -> int:
     module = load_module()
     test_incident_search_returns_expanded_terms(module)
     test_data_dir_validation_and_duckdb_api_query(module)
     test_dossier_can_include_production_casing_compare_and_timeline(module)
+    test_production_time_series_has_standard_plot_schema(module)
     test_field_audit_ranks_wells(module)
+    test_emit_result_can_save_json_for_rendering(module)
     print("feature tests passed")
     return 0
 

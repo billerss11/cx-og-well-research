@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
+import io
 import json
 import math
 import re
@@ -67,6 +69,28 @@ INCIDENT_TERMS = {
     "logging": ["wireline", "mwd", "lwd", "log", "gamma ray", "resistivity"],
 }
 
+PRODUCTION_GROUP_ALIASES = {
+    "completion_name": ("completion_name", "Completion Name"),
+    "completion": ("completion_name", "Completion Name"),
+    "product_code": ("product_code", "Product Code"),
+    "product": ("product_code", "Product Code"),
+    "production_interval_code": ("production_interval_code", "Production Interval Code"),
+    "interval_code": ("production_interval_code", "Production Interval Code"),
+    "interval": ("production_interval_code", "Production Interval Code"),
+    "interval_code_name": ("production_interval_code", "Production Interval Code"),
+}
+
+PRODUCTION_TIME_SERIES_METRICS = [
+    {"field": "oil_volume", "source_column": "Monthly Oil Volume", "aggregation": "sum", "unit": "source_volume"},
+    {"field": "gas_volume", "source_column": "Monthly Gas Volume", "aggregation": "sum", "unit": "source_volume"},
+    {"field": "water_volume", "source_column": "Monthly Water Volume", "aggregation": "sum", "unit": "source_volume"},
+    {"field": "injection_volume", "source_column": "Injection Volume", "aggregation": "sum", "unit": "source_volume"},
+    {"field": "days_on_prod", "source_column": "Days On Prod", "aggregation": "sum", "unit": "days"},
+    {"field": "oil_rate", "source_column": "Monthly Oil Volume / Days On Prod", "aggregation": "derived", "unit": "source_volume_per_day"},
+    {"field": "gas_rate", "source_column": "Monthly Gas Volume / Days On Prod", "aggregation": "derived", "unit": "source_volume_per_day"},
+    {"field": "water_rate", "source_column": "Monthly Water Volume / Days On Prod", "aggregation": "derived", "unit": "source_volume_per_day"},
+]
+
 
 def norm_api(value: Any) -> str:
     if value is None or pd.isna(value):
@@ -84,6 +108,21 @@ def repo_root_from(start: Path) -> Path:
 
 def sql_literal(value: Any) -> str:
     return "'" + str(value).replace("'", "''") + "'"
+
+
+def alias_key(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", value.casefold()).strip("_")
+
+
+def normalize_production_group_by(value: str | None) -> dict[str, str] | None:
+    if not value:
+        return None
+    normalized = alias_key(value)
+    if normalized not in PRODUCTION_GROUP_ALIASES:
+        allowed = ", ".join(sorted({column for _, column in PRODUCTION_GROUP_ALIASES.values()}))
+        raise ValueError(f"Unsupported production group. Use one of: {allowed}")
+    field, source_column = PRODUCTION_GROUP_ALIASES[normalized]
+    return {"requested": value, "field": field, "source_column": source_column}
 
 
 def parquet_path(data_dir: Path, key: str) -> Path:
@@ -409,6 +448,7 @@ def build_dossier(
     min_step: float,
     keyword: str | None = None,
     include_production: bool = False,
+    production_group_by: dict[str, str] | None = None,
     include_casing_compare: bool = False,
     include_timeline: bool = False,
 ) -> dict[str, Any]:
@@ -435,7 +475,7 @@ def build_dossier(
     attachments = query_api_dataset(data_dir, "attachments", "API_WELL_NUMBER", api)
     frs = query_api_dataset(data_dir, "frs", "API", api)
     war_text = build_war_text(data_dir, war_main, keyword)
-    production = build_production_summary(data_dir, api) if include_production or include_timeline else {"records": 0}
+    production = build_production_summary(data_dir, api, production_group_by) if include_production or include_timeline or production_group_by else {"records": 0}
 
     identity_cols = [
         "API_WELL_NUMBER", "WELL_NAME", "WELL_NAME_SUFFIX", "COMPANY_NAME", "FIELD", "OPERATOR FIELD", "AREA", "BLOCK",
@@ -495,7 +535,7 @@ def build_dossier(
         "frs_files": {"records": int(len(frs)), "sample": top_rows(frs, ["DOC_ID", "DOC_TYPE", "API", "WELL_NAME", "RUN_DATE", "FILE_EXT", "LOG_SOURCE", "COMMENTS"], limit)},
     }
 
-    if include_production:
+    if include_production or production_group_by:
         sections["production"] = production
     if include_casing_compare:
         sections["casing_comparison"] = build_casing_comparison(apd_casing, war_casing, limit)
@@ -528,7 +568,7 @@ def build_dossier(
     }
 
 
-def build_production_summary(data_dir: Path, api: str) -> dict[str, Any]:
+def build_production_summary(data_dir: Path, api: str, group_by: dict[str, str] | None = None) -> dict[str, Any]:
     cols = [
         "Api Well Number", "Production Date", "Days On Prod", "Product Code", "Monthly Oil Volume",
         "Monthly Gas Volume", "Monthly Water Volume", "Well Status Code", "Completion Name",
@@ -536,7 +576,10 @@ def build_production_summary(data_dir: Path, api: str) -> dict[str, Any]:
     ]
     prod = query_api_dataset(data_dir, "production", "Api Well Number", api, columns=cols, order_by="Production Date")
     if prod.empty:
-        return {"records": 0, "date_range": None, "totals": {}, "peak_months": {}, "sample": []}
+        summary = {"records": 0, "date_range": None, "totals": {}, "peak_months": {}, "sample": []}
+        if group_by:
+            summary["time_series"] = empty_production_time_series(api, group_by)
+        return summary
     if "Production Date" in prod.columns:
         prod = prod.sort_values("Production Date")
     totals = {}
@@ -551,7 +594,7 @@ def build_production_summary(data_dir: Path, api: str) -> dict[str, Any]:
                     "date": prod.loc[idx, "Production Date"] if "Production Date" in prod.columns else None,
                     "value": float(values.loc[idx]),
                 }
-    return {
+    summary = {
         "records": int(len(prod)),
         "date_range": date_range(prod, "Production Date"),
         "first_production_date": date_range(prod, "First Production Date")["first"] if date_range(prod, "First Production Date") else None,
@@ -561,6 +604,80 @@ def build_production_summary(data_dir: Path, api: str) -> dict[str, Any]:
         "completion_count": int(prod["Completion Name"].nunique()) if "Completion Name" in prod.columns else 0,
         "sample": top_rows(prod, ["Production Date", "Completion Name", "Product Code", "Monthly Oil Volume", "Monthly Gas Volume", "Monthly Water Volume", "Well Status Code"], 8),
     }
+    if group_by:
+        summary["time_series"] = build_production_time_series(data_dir, api, group_by)
+    return summary
+
+
+def empty_production_time_series(api: str, group_by: dict[str, str]) -> dict[str, Any]:
+    return {
+        "schema_version": "1.0",
+        "kind": "production_time_series",
+        "api_well_number": norm_api(api),
+        "grain": "monthly",
+        "x": {"field": "period_start", "type": "date"},
+        "group_by": group_by,
+        "metrics": PRODUCTION_TIME_SERIES_METRICS,
+        "records": 0,
+        "groups": [],
+        "points": [],
+    }
+
+
+def build_production_time_series(data_dir: Path, api: str, group_by: dict[str, str]) -> dict[str, Any]:
+    path = parquet_path(data_dir, "production")
+    if not path.exists():
+        return empty_production_time_series(api, group_by)
+
+    group_col = group_by["source_column"]
+    target = norm_api(api)
+    sql = f"""
+        SELECT
+            CAST(date_trunc('month', "Production Date") AS DATE) AS period_start,
+            coalesce(nullif(trim(CAST("{group_col}" AS VARCHAR)), ''), 'Unspecified') AS group_value,
+            sum(coalesce(TRY_CAST("Monthly Oil Volume" AS DOUBLE), 0)) AS oil_volume,
+            sum(coalesce(TRY_CAST("Monthly Gas Volume" AS DOUBLE), 0)) AS gas_volume,
+            sum(coalesce(TRY_CAST("Monthly Water Volume" AS DOUBLE), 0)) AS water_volume,
+            sum(coalesce(TRY_CAST("Injection Volume" AS DOUBLE), 0)) AS injection_volume,
+            sum(coalesce(TRY_CAST("Days On Prod" AS DOUBLE), 0)) AS days_on_prod,
+            count(*) AS source_row_count
+        FROM {parquet_sql(data_dir, "production")}
+        WHERE {api_match_sql("Api Well Number")}
+          AND "Production Date" IS NOT NULL
+        GROUP BY 1, 2
+        ORDER BY 1, 2
+    """
+    df = duckdb_df(sql, [target, target, target])
+    result = empty_production_time_series(api, group_by)
+    if df.empty:
+        return result
+
+    points = []
+    for _, row in df.iterrows():
+        days = float(row.get("days_on_prod") or 0)
+        oil = float(row.get("oil_volume") or 0)
+        gas = float(row.get("gas_volume") or 0)
+        water = float(row.get("water_volume") or 0)
+        points.append(
+            {
+                "period_start": pd.to_datetime(row["period_start"]).date().isoformat(),
+                "group": str(row["group_value"]),
+                "oil_volume": oil,
+                "gas_volume": gas,
+                "water_volume": water,
+                "injection_volume": float(row.get("injection_volume") or 0),
+                "days_on_prod": days,
+                "oil_rate": oil / days if days else None,
+                "gas_rate": gas / days if days else None,
+                "water_rate": water / days if days else None,
+                "source_row_count": int(row.get("source_row_count") or 0),
+            }
+        )
+
+    result["records"] = len(points)
+    result["groups"] = sorted({point["group"] for point in points})
+    result["points"] = points
+    return result
 
 
 def build_geomarkers(data_dir: Path, sn_eors: set[str]) -> pd.DataFrame:
@@ -963,6 +1080,14 @@ def print_field_audit(audit: dict[str, Any]) -> None:
         )
 
 
+def print_data_dir_check(validation: dict[str, Any]) -> None:
+    print("# Data Directory Check")
+    print(f"\n- Data dir: `{validation['data_dir']}`")
+    print(f"- OK: {validation['ok']}")
+    print(f"- Present datasets: {validation['present_count']}")
+    print(f"- Missing required: {', '.join(validation['missing_required']) if validation['missing_required'] else 'None'}")
+
+
 def print_dossier(dossier: dict[str, Any]) -> None:
     print(f"# Well Research Dossier: {dossier['api_query']}")
     print(f"\nData dir: `{dossier['data_dir']}`")
@@ -982,6 +1107,11 @@ def print_dossier(dossier: dict[str, Any]) -> None:
         for key, value in section.items():
             if key == "sample":
                 continue
+            if key == "time_series":
+                group_by = value.get("group_by", {}) if isinstance(value, dict) else {}
+                groups = value.get("groups", []) if isinstance(value, dict) else []
+                print(f"- time_series: records={value.get('records', 0)}, group_by={group_by.get('source_column')}, groups={json.dumps(to_jsonable(groups), ensure_ascii=False)}")
+                continue
             print(f"- {key}: {json.dumps(to_jsonable(value), ensure_ascii=False, default=str)}")
         sample = section.get("sample", [])
         if sample:
@@ -990,6 +1120,27 @@ def print_dossier(dossier: dict[str, Any]) -> None:
                 if "TEXT_REMARK" in row:
                     row["TEXT_REMARK"] = clean_text(row["TEXT_REMARK"])
                 print(f"  - {json.dumps(to_jsonable(row), ensure_ascii=False, default=str)}")
+
+
+def emit_result(
+    result: dict[str, Any],
+    output_format: str,
+    output_path: Path | None,
+    markdown_printer,
+) -> None:
+    if output_format == "json":
+        text = json.dumps(to_jsonable(result), indent=2, ensure_ascii=False, default=str) + "\n"
+    else:
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            markdown_printer(result)
+        text = buffer.getvalue()
+
+    if output_path:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(text, encoding="utf-8")
+    else:
+        print(text, end="")
 
 
 def main() -> int:
@@ -1003,6 +1154,7 @@ def main() -> int:
     parser.add_argument("--field", help="Field/operator/name text for field research or audit.")
     parser.add_argument("--filter", help="Optional text filter for keyword discovery, e.g. field/operator/well.")
     parser.add_argument("--include-production", action="store_true", help="Include production history summary in API dossier.")
+    parser.add_argument("--production-group-by", help="Add plot-ready monthly production points grouped by Completion Name, Product Code, or Production Interval Code.")
     parser.add_argument("--casing-compare", action="store_true", help="Add APD planned vs WAR actual casing comparison.")
     parser.add_argument("--timeline", action="store_true", help="Add chronological timeline across available well evidence.")
     parser.add_argument("--audit", action="store_true", help="Audit data completeness for wells matching --field.")
@@ -1010,46 +1162,35 @@ def main() -> int:
     parser.add_argument("--limit", type=int, default=8, help="Sample row limit.")
     parser.add_argument("--full", action="store_true", help="Return more sample rows.")
     parser.add_argument("--format", choices=["markdown", "json"], default="markdown")
+    parser.add_argument("--output", type=Path, help="Optional file path for saved JSON or Markdown output.")
     args = parser.parse_args()
 
     repo = repo_root_from(args.repo)
     data_dir = args.data_dir or (repo / "data")
     limit = 1000 if args.full else args.limit
+    try:
+        production_group_by = normalize_production_group_by(args.production_group_by)
+    except ValueError as exc:
+        parser.error(str(exc))
 
     if args.check_data_dir:
         validation = check_data_dir(data_dir)
-        if args.format == "json":
-            print(json.dumps(to_jsonable(validation), indent=2, ensure_ascii=False, default=str))
-        else:
-            print("# Data Directory Check")
-            print(f"\n- Data dir: `{validation['data_dir']}`")
-            print(f"- OK: {validation['ok']}")
-            print(f"- Present datasets: {validation['present_count']}")
-            print(f"- Missing required: {', '.join(validation['missing_required']) if validation['missing_required'] else 'None'}")
+        emit_result(validation, args.format, args.output, print_data_dir_check)
         return 0 if validation["ok"] else 2
 
     if args.incident and not args.api:
         result = search_incident(data_dir, args.incident, args.filter or args.field, limit)
-        if args.format == "json":
-            print(json.dumps(to_jsonable(result), indent=2, ensure_ascii=False, default=str))
-        else:
-            print_search(result)
+        emit_result(result, args.format, args.output, print_search)
         return 0
 
     if args.keyword and not args.api:
         result = search_keyword(data_dir, args.keyword, args.filter, limit)
-        if args.format == "json":
-            print(json.dumps(to_jsonable(result), indent=2, ensure_ascii=False, default=str))
-        else:
-            print_search(result)
+        emit_result(result, args.format, args.output, print_search)
         return 0
 
     if args.field and (args.audit or not args.api):
         audit = build_field_audit(data_dir, args.field, limit)
-        if args.format == "json":
-            print(json.dumps(to_jsonable(audit), indent=2, ensure_ascii=False, default=str))
-        else:
-            print_field_audit(audit)
+        emit_result(audit, args.format, args.output, print_field_audit)
         return 0
 
     if not args.api:
@@ -1062,13 +1203,11 @@ def main() -> int:
         args.min_step,
         args.keyword,
         include_production=args.include_production,
+        production_group_by=production_group_by,
         include_casing_compare=args.casing_compare,
         include_timeline=args.timeline,
     )
-    if args.format == "json":
-        print(json.dumps(to_jsonable(dossier), indent=2, ensure_ascii=False, default=str))
-    else:
-        print_dossier(dossier)
+    emit_result(dossier, args.format, args.output, print_dossier)
     return 0
 
 
