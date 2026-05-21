@@ -89,16 +89,158 @@ PRODUCTION_GROUP_ALIASES = {
     "interval_code_name": ("production_interval_code", "Production Interval Code"),
 }
 
+PRODUCTION_UNITS = {
+    "Monthly Oil Volume": "bbl",
+    "Monthly Gas Volume": "mcf",
+    "Monthly Water Volume": "bbl",
+    "Injection Volume": "bbl",
+    "Monthly Oil Volume_m3": "m3",
+    "Monthly Gas Volume_mcf": "mcf",
+    "Monthly Gas Volume_m3": "m3",
+    "Monthly Water Volume_m3": "m3",
+    "Injection Volume_m3": "m3",
+    "Days On Prod": "days",
+    "oil_volume": "bbl",
+    "gas_volume": "mcf",
+    "water_volume": "bbl",
+    "injection_volume": "bbl",
+    "days_on_prod": "days",
+    "oil_rate": "bbl/day",
+    "gas_rate": "mcf/day",
+    "water_rate": "bbl/day",
+}
+
 PRODUCTION_TIME_SERIES_METRICS = [
-    {"field": "oil_volume", "source_column": "Monthly Oil Volume", "aggregation": "sum", "unit": "source_volume"},
-    {"field": "gas_volume", "source_column": "Monthly Gas Volume", "aggregation": "sum", "unit": "source_volume"},
-    {"field": "water_volume", "source_column": "Monthly Water Volume", "aggregation": "sum", "unit": "source_volume"},
-    {"field": "injection_volume", "source_column": "Injection Volume", "aggregation": "sum", "unit": "source_volume"},
+    {"field": "oil_volume", "source_column": "Monthly Oil Volume", "aggregation": "sum", "unit": "bbl"},
+    {"field": "gas_volume", "source_column": "Monthly Gas Volume", "aggregation": "sum", "unit": "mcf"},
+    {"field": "water_volume", "source_column": "Monthly Water Volume", "aggregation": "sum", "unit": "bbl"},
+    {"field": "injection_volume", "source_column": "Injection Volume", "aggregation": "sum", "unit": "bbl"},
     {"field": "days_on_prod", "source_column": "Days On Prod", "aggregation": "sum", "unit": "days"},
-    {"field": "oil_rate", "source_column": "Monthly Oil Volume / Days On Prod", "aggregation": "derived", "unit": "source_volume_per_day"},
-    {"field": "gas_rate", "source_column": "Monthly Gas Volume / Days On Prod", "aggregation": "derived", "unit": "source_volume_per_day"},
-    {"field": "water_rate", "source_column": "Monthly Water Volume / Days On Prod", "aggregation": "derived", "unit": "source_volume_per_day"},
+    {"field": "oil_rate", "source_column": "Monthly Oil Volume / Days On Prod", "aggregation": "derived", "unit": "bbl/day"},
+    {"field": "gas_rate", "source_column": "Monthly Gas Volume / Days On Prod", "aggregation": "derived", "unit": "mcf/day"},
+    {"field": "water_rate", "source_column": "Monthly Water Volume / Days On Prod", "aggregation": "derived", "unit": "bbl/day"},
 ]
+
+BOREHOLE_UNITS = {
+    "BH_TOTAL_MD": "ft",
+    "BH_TOTAL_MD_M": "m",
+    "WELL_BORE_TVD": "ft",
+    "WELL_BORE_TVD_M": "m",
+    "WELL_TD_SS": "ft",
+    "WATER_DEPTH": "ft",
+    "WATER_DEPTH_M": "m",
+    "RKB_ELEVATION": "ft",
+    "RKB_ELEVATION_M": "m",
+    "SURF_LATITUDE": "deg",
+    "SURF_LONGITUDE": "deg",
+    "BOTM_LATITUDE": "deg",
+    "BOTM_LONGITUDE": "deg",
+}
+
+TRAJECTORY_UNITS = {
+    "Survey Point MD": "ft",
+    "Survey Point TVD": "ft",
+    "Survey Point neg TVD": "ft",
+    "Delta X": "ft",
+    "Delta Y": "ft",
+    "easting": "ft",
+    "northing": "ft",
+    "Latitude": "deg",
+    "Longitude": "deg",
+    "Incl Ang Deg Val": "deg",
+    "Incl Ang Min Val": "arcmin",
+    "Dir Deg Val": "deg",
+    "Dir Mins Val": "arcmin",
+    "horizontal_distance_ft": "ft",
+    "final_tvd_ft": "ft",
+    "delta_easting_ft": "ft",
+    "delta_northing_ft": "ft",
+}
+
+AZIMUTH_DLS_UNITS = {
+    "MD": "ft",
+    "Deviation Angle": "deg",
+    "Azimuth": "deg",
+    "DLS": "deg/100ft",
+    "MD_Diff": "ft",
+    "min_step_ft": "ft",
+    "max_deviation_deg": "deg",
+    "max_dls_deg_per_100ft": "deg/100ft",
+    "avg_dls_deg_per_100ft": "deg/100ft",
+    "calculated_horizontal_distance_ft": "ft",
+    "calculated_final_tvd_ft": "ft",
+    "Calc_TVD_ft": "ft",
+    "Calc_Easting_offset_ft": "ft",
+    "Calc_Northing_offset_ft": "ft",
+}
+
+CASING_UNITS = {
+    "CASING_SIZE": "in",
+    "CASING_WEIGHT": "lb/ft",
+    "CSNG_HOLESIZE": "in",
+    "CSNG_HOLE_SIZE": "in",
+    "CSNG_BOP_STACK_SIZE": "in",
+    "CSNG_TOP_MD": "ft",
+    "CASING_SECTION_MD": "ft",
+    "CASING_SECTION_TVD": "ft",
+    "CSNG_SETTING_TOP_MD": "ft",
+    "CSNG_SETTING_BOTM_MD": "ft",
+    "TOP_MD": "ft",
+    "BOTTOM_MD": "ft",
+    "CASING_BURST_PSI": "psi",
+    "CASING_COLLPSE_PSI": "psi",
+    "CSNG_LINER_TEST_PRSS": "psi",
+    "CSNG_SHOE_TEST_PRSS": "psi",
+    "CSNG_WELLHEAD_RATING": "psi",
+    "CSNG_ANNULAR_RATING": "psi",
+    "CSNG_BOP_RATING": "psi",
+    "CSNG_ANNULAR_TEST_PRSS": "psi",
+    "CSNG_BOP_DIV_TEST_PRSS": "psi",
+    "CSNG_FORMATION_TEST_PRSS": "psi",
+    "CSNG_MUD_WGT_PPG": "ppg",
+    "CSNG_FRAC_GRAD_PPG": "ppg",
+    "CASING_PORE_PRSS_PPG": "ppg",
+    "CSNG_CEMENT_VOL": "bbl",
+    "max_size": "in",
+    "max_depth": "ft",
+    "apd_max_depth_ft": "ft",
+    "war_max_depth_ft": "ft",
+    "max_depth_ft": "ft",
+}
+
+BHP_UNITS = {
+    "BHTST_MD": "ft",
+    "BHTST_TVD": "ft",
+    "BHTST_PRESSURE": "psi",
+    "BHTST_SI_PRSS": "psi",
+    "BHTST_TEMP": "degF",
+    "SI_TIME": "hr",
+}
+
+EOR_INTERVAL_UNITS = {
+    "TOP_MD": "ft",
+    "PERF_TOP_MD": "ft",
+    "PERF_BASE_MD": "ft",
+    "PERF_TOP_TVD": "ft",
+    "PERF_BOTM_TVD": "ft",
+    "deepest_marker_ft": "ft",
+}
+
+DECOM_UNITS = {
+    "P50_COST": "USD",
+    "P70_COST": "USD",
+    "P90_COST": "USD",
+    "DTR_COST": "USD",
+    "WELL_INST_DCOM_P50": "USD",
+    "WELL_INST_DCOM_P70": "USD",
+    "WELL_INST_DCOM_P90": "USD",
+    "WELL_INST_DCOM_INDTR": "USD",
+    "WELL_PRP_DCOM_P50": "USD",
+    "WELL_PRP_DCOM_P70": "USD",
+    "WELL_PRP_DCOM_P90": "USD",
+    "WELL_PRP_DCOM_INDTR": "USD",
+    "BLK_MAX_WTR_DPTH": "ft",
+}
 
 
 def norm_api(value: Any) -> str:
@@ -274,6 +416,10 @@ def numeric_summary(df: pd.DataFrame, columns: list[str]) -> dict[str, dict[str,
     return out
 
 
+def units_for(columns: list[str], units: dict[str, str]) -> dict[str, str]:
+    return {col: units[col] for col in columns if col in units}
+
+
 def version_metrics(df: pd.DataFrame, version_col: str, date_col: str, depth_col: str, size_col: str = "CASING_SIZE") -> list[dict[str, Any]]:
     if df.empty or version_col not in df.columns:
         return []
@@ -296,13 +442,14 @@ def version_metrics(df: pd.DataFrame, version_col: str, date_col: str, depth_col
         spec_cols = [c for c in ["CASING_SIZE", "CASING_WEIGHT", "CASING_GRADE"] if c in version_df.columns]
         if spec_cols:
             metric["unique_specs"] = int(len(version_df[spec_cols].drop_duplicates()))
+        metric["units"] = units_for([size_col, depth_col, "max_size", "max_depth", *spec_cols], CASING_UNITS)
         out.append(metric)
     return out
 
 
 def dls_analysis(azimuth: pd.DataFrame, min_step: float) -> dict[str, Any]:
     if azimuth.empty or not {"MD", "Deviation Angle", "Azimuth"}.issubset(azimuth.columns):
-        return {"records": int(len(azimuth)), "available": False}
+        return {"records": int(len(azimuth)), "available": False, "units": AZIMUTH_DLS_UNITS}
 
     df = azimuth.sort_values("MD").copy()
     for col in ["MD", "Deviation Angle", "Azimuth"]:
@@ -352,6 +499,7 @@ def dls_analysis(azimuth: pd.DataFrame, min_step: float) -> dict[str, Any]:
     return {
         "records": int(len(df)),
         "available": True,
+        "units": AZIMUTH_DLS_UNITS,
         "used_points": int(len(used)),
         "excluded_points": int(len(df) - len(used)),
         "md_spacing_lt_min_step": int(df["Is_MD_Problematic"].sum()),
@@ -516,10 +664,11 @@ def build_dossier(
         }
 
     sections = {
-        "borehole": {"records": int(len(bore)), "sample": top_rows(bore, None, limit)},
+        "borehole": {"records": int(len(bore)), "units": BOREHOLE_UNITS, "sample": top_rows(bore, None, limit)},
         "eor_main": {"records": int(len(eor_main)), "sample": top_rows(eor_main, None, limit)},
         "wellpath_raw": {
             "records": int(len(points)),
+            "units": TRAJECTORY_UNITS,
             "metrics": standard_metrics,
             "numeric_summary": numeric_summary(points, ["Survey Point MD", "Survey Point TVD", "easting", "northing", "Latitude", "Longitude"]),
             "sample": top_rows(points, ["API Number", "Survey Point MD", "Survey Point TVD", "Incl Ang Deg Val", "easting", "northing", "Latitude", "Longitude"], limit),
@@ -527,18 +676,21 @@ def build_dossier(
         "azimuth_dls": dls_analysis(azimuth, min_step),
         "geological_markers": {
             "records": int(len(geomarkers)),
+            "units": EOR_INTERVAL_UNITS,
             "deepest_marker_ft": float(pd.to_numeric(geomarkers["TOP_MD"], errors="coerce").max()) if not geomarkers.empty and "TOP_MD" in geomarkers.columns else None,
             "sample": top_rows(geomarkers.sort_values("TOP_MD") if "TOP_MD" in geomarkers.columns else geomarkers, ["GEO_MARKER_NAME", "TOP_MD"], limit),
         },
-        "bhp_survey": {"records": int(len(bhp)), "date_range": date_range(bhp, "BHTST_DATE"), "sample": top_rows(bhp, None, limit)},
-        "perforations": {"records": int(len(perf)), "sample": top_rows(perf, ["SN_EOR_FK", "SN_EOR_WELL_COMP", "INTERVAL", "PERF_TOP_MD", "PERF_BASE_MD", "PERF_TOP_TVD", "PERF_BOTM_TVD"], limit)},
+        "bhp_survey": {"records": int(len(bhp)), "units": BHP_UNITS, "date_range": date_range(bhp, "BHTST_DATE"), "sample": top_rows(bhp, None, limit)},
+        "perforations": {"records": int(len(perf)), "units": EOR_INTERVAL_UNITS, "sample": top_rows(perf, ["SN_EOR_FK", "SN_EOR_WELL_COMP", "INTERVAL", "PERF_TOP_MD", "PERF_BASE_MD", "PERF_TOP_TVD", "PERF_BOTM_TVD"], limit)},
         "apd_casing": {
             "records": int(len(apd_casing)),
+            "units": CASING_UNITS,
             "version_metrics": version_metrics(apd_casing, "Submission_Version", "Submission_Date", "CASING_SECTION_MD"),
             "sample": top_rows(apd_casing, None, limit),
         },
         "war_casing": {
             "records": int(len(war_casing)),
+            "units": CASING_UNITS,
             "version_metrics": version_metrics(war_casing, "Report_Version", "Report_End_Date", "CSNG_SETTING_BOTM_MD"),
             "sample": top_rows(war_casing, None, limit),
         },
@@ -595,7 +747,7 @@ def build_production_summary(data_dir: Path, api: str, group_by: dict[str, str] 
     ]
     prod = query_api_dataset(data_dir, "production", "Api Well Number", api, columns=cols, order_by="Production Date")
     if prod.empty:
-        summary = {"records": 0, "date_range": None, "totals": {}, "peak_months": {}, "sample": []}
+        summary = {"records": 0, "date_range": None, "units": PRODUCTION_UNITS, "totals": {}, "peak_months": {}, "sample": []}
         if group_by:
             summary["time_series"] = empty_production_time_series(api, group_by)
         return summary
@@ -617,6 +769,7 @@ def build_production_summary(data_dir: Path, api: str, group_by: dict[str, str] 
         "records": int(len(prod)),
         "date_range": date_range(prod, "Production Date"),
         "first_production_date": date_range(prod, "First Production Date")["first"] if date_range(prod, "First Production Date") else None,
+        "units": PRODUCTION_UNITS,
         "totals": totals,
         "peak_months": peak_months,
         "status_codes": sorted([str(v) for v in prod["Well Status Code"].dropna().unique()]) if "Well Status Code" in prod.columns else [],
@@ -636,6 +789,7 @@ def empty_production_time_series(api: str, group_by: dict[str, str]) -> dict[str
         "grain": "monthly",
         "x": {"field": "period_start", "type": "date"},
         "group_by": group_by,
+        "units": PRODUCTION_UNITS,
         "metrics": PRODUCTION_TIME_SERIES_METRICS,
         "records": 0,
         "groups": [],
@@ -712,6 +866,7 @@ def build_completion_reconciliation(data_dir: Path, api: str, limit: int) -> dic
         ],
         "production": {
             "records": 0,
+            "units": PRODUCTION_UNITS,
             "completion_names": [],
             "product_codes": [],
             "production_interval_codes": [],
@@ -751,6 +906,7 @@ def build_completion_reconciliation(data_dir: Path, api: str, limit: int) -> dic
             combinations = top_rows(prod, None, limit)
             result["production"] = {
                 "records": int(len(prod)),
+                "units": PRODUCTION_UNITS,
                 "completion_names": sorted(str(v) for v in prod["completion_name"].dropna().unique()),
                 "product_codes": sorted(str(v) for v in prod["product_code"].dropna().unique()),
                 "production_interval_codes": sorted(str(v) for v in prod["production_interval_code"].dropna().unique()),
@@ -842,6 +998,7 @@ def build_perforations(data_dir: Path, sn_eors: set[str]) -> pd.DataFrame:
 def build_casing_comparison(apd_casing: pd.DataFrame, war_casing: pd.DataFrame, limit: int) -> dict[str, Any]:
     result = {
         "records": int(len(apd_casing) + len(war_casing)),
+        "units": CASING_UNITS,
         "apd_records": int(len(apd_casing)),
         "war_records": int(len(war_casing)),
         "status": "missing_apd_and_war",
@@ -916,6 +1073,7 @@ def build_global_casing_search(
             "latest_only": latest_only,
         },
         "records_scanned": int(len(casing)),
+        "units": CASING_UNITS,
         "well_count": 0,
         "wells": [],
     }
@@ -1327,11 +1485,13 @@ def filter_decom_min_cost(df: pd.DataFrame, columns: list[str], min_cost: float 
 def decom_section(df: pd.DataFrame, cost_columns: list[str] | None, limit: int) -> dict[str, Any]:
     section = {
         "records": int(len(df)),
+        "units": units_for(list(df.columns), DECOM_UNITS),
         "sample": top_rows(sort_decom_rows(df, cost_columns), None, limit),
     }
     if cost_columns:
         present = [col for col in cost_columns if col in df.columns]
         section["cost_columns"] = present
+        section["cost_units"] = units_for(present, DECOM_UNITS)
         if present and not df.empty:
             values = df[present].apply(pd.to_numeric, errors="coerce").fillna(0)
             section["cost_sum"] = {col: float(values[col].sum()) for col in present}
@@ -1579,7 +1739,7 @@ def build_logging(data_dir: Path, war_main: pd.DataFrame) -> pd.DataFrame:
 def build_field_audit(data_dir: Path, field: str, limit: int) -> dict[str, Any]:
     bore = read_dataset(data_dir, "boreholes")
     if bore.empty:
-        return {"field_query": field, "well_count": 0, "wells": []}
+        return {"field_query": field, "units": BOREHOLE_UNITS, "well_count": 0, "wells": []}
     target = field.casefold()
     haystack = pd.Series("", index=bore.index)
     for col in ["FIELD", "OPERATOR FIELD", "AREA", "BLOCK", "LEASE", "COMPANY_NAME", "WELL_NAME"]:
@@ -1587,7 +1747,7 @@ def build_field_audit(data_dir: Path, field: str, limit: int) -> dict[str, Any]:
             haystack = haystack + " " + bore[col].fillna("").astype(str)
     field_wells = bore[haystack.str.casefold().str.contains(target, na=False)].copy()
     if field_wells.empty:
-        return {"field_query": field, "well_count": 0, "wells": []}
+        return {"field_query": field, "units": BOREHOLE_UNITS, "well_count": 0, "wells": []}
 
     apis = [str(api) for api in field_wells["API_WELL_NUMBER"].dropna().unique()]
     api_norms = {norm_api(api): api for api in apis}
@@ -1627,6 +1787,7 @@ def build_field_audit(data_dir: Path, field: str, limit: int) -> dict[str, Any]:
     rows = sorted(rows, key=lambda r: (r["data_score"], r.get("BH_TOTAL_MD") or 0), reverse=True)
     return {
         "field_query": field,
+        "units": BOREHOLE_UNITS,
         "well_count": int(len(rows)),
         "availability_counts": {name: int(sum(1 for row in rows if row["availability"][name])) for name in availability_sets},
         "wells": rows[:limit],
@@ -1687,6 +1848,8 @@ def print_casing_search(result: dict[str, Any]) -> None:
     print(f"- Latest only: {query['latest_only']}")
     if query.get("filter"):
         print(f"- Filter: `{query['filter']}`")
+    if result.get("units"):
+        print(f"- Units: {json.dumps(result['units'], ensure_ascii=False)}")
     print(f"- Records scanned: {result['records_scanned']}")
     print(f"- Wells matched: {result['well_count']}")
     print("\n## Wells")
@@ -1721,6 +1884,8 @@ def print_decom_research(result: dict[str, Any]) -> None:
         print(f"- records: {section['records']}")
         if section.get("cost_columns"):
             print(f"- cost_columns: {json.dumps(section['cost_columns'], ensure_ascii=False)}")
+        if section.get("cost_units"):
+            print(f"- cost_units: {json.dumps(section['cost_units'], ensure_ascii=False)}")
         if section.get("cost_sum"):
             print(f"- cost_sum: {json.dumps(to_jsonable(section['cost_sum']), ensure_ascii=False)}")
         if section.get("cost_max"):
