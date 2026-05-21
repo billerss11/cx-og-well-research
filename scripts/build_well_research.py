@@ -143,8 +143,10 @@ TRAJECTORY_UNITS = {
     "Survey Point neg TVD": "ft",
     "Delta X": "ft",
     "Delta Y": "ft",
-    "easting": "ft",
-    "northing": "ft",
+    "easting": "ft Web Mercator legacy alias",
+    "northing": "ft Web Mercator legacy alias",
+    "webmerc_easting_ft": "ft Web Mercator",
+    "webmerc_northing_ft": "ft Web Mercator",
     "Latitude": "deg",
     "Longitude": "deg",
     "Incl Ang Deg Val": "deg",
@@ -155,6 +157,7 @@ TRAJECTORY_UNITS = {
     "final_tvd_ft": "ft",
     "delta_easting_ft": "ft",
     "delta_northing_ft": "ft",
+    "coordinate_basis": "text",
 }
 
 AZIMUTH_DLS_UNITS = {
@@ -173,6 +176,8 @@ AZIMUTH_DLS_UNITS = {
     "Calc_Easting_offset_ft": "ft",
     "Calc_Northing_offset_ft": "ft",
 }
+
+EARTH_RADIUS_FT = 6378137 * 3.28084
 
 CASING_UNITS = {
     "CASING_SIZE": "in",
@@ -514,6 +519,52 @@ def dls_analysis(azimuth: pd.DataFrame, min_step: float) -> dict[str, Any]:
     }
 
 
+def lon_lat_to_local_offsets_ft(longitude: pd.Series, latitude: pd.Series) -> tuple[np.ndarray, np.ndarray]:
+    lon = pd.to_numeric(longitude, errors="coerce").to_numpy(dtype=float)
+    lat = pd.to_numeric(latitude, errors="coerce").to_numpy(dtype=float)
+    if len(lon) == 0:
+        return lon, lat
+
+    origin_lat_rad = math.radians(float(lat[0]))
+    east = (lon - lon[0]) * math.pi / 180.0 * EARTH_RADIUS_FT * math.cos(origin_lat_rad)
+    north = (lat - lat[0]) * math.pi / 180.0 * EARTH_RADIUS_FT
+    return east, north
+
+
+def standard_wellpath_metrics(points: pd.DataFrame) -> dict[str, Any]:
+    if points.empty or "Survey Point TVD" not in points.columns:
+        return {}
+
+    p = points.sort_values("Survey Point MD") if "Survey Point MD" in points.columns else points.copy()
+    tvd = float(pd.to_numeric(p["Survey Point TVD"], errors="coerce").iloc[-1])
+
+    if {"Longitude", "Latitude"}.issubset(p.columns):
+        east, north = lon_lat_to_local_offsets_ft(p["Longitude"], p["Latitude"])
+        dx = float(east[-1] - east[0])
+        dy = float(north[-1] - north[0])
+        basis = "local_lon_lat_offsets"
+    elif {"Calc_Easting_offset_ft", "Calc_Northing_offset_ft"}.issubset(p.columns):
+        dx = float(p["Calc_Easting_offset_ft"].iloc[-1] - p["Calc_Easting_offset_ft"].iloc[0])
+        dy = float(p["Calc_Northing_offset_ft"].iloc[-1] - p["Calc_Northing_offset_ft"].iloc[0])
+        basis = "calculated_trajectory_offsets"
+    elif {"easting", "northing"}.issubset(p.columns):
+        dx = float(p["easting"].iloc[-1] - p["easting"].iloc[0])
+        dy = float(p["northing"].iloc[-1] - p["northing"].iloc[0])
+        basis = "webmerc_legacy_fallback"
+    else:
+        return {"final_tvd_ft": tvd, "coordinate_basis": "unavailable"}
+
+    horiz = float(math.hypot(dx, dy))
+    return {
+        "horizontal_distance_ft": horiz,
+        "final_tvd_ft": tvd,
+        "horizontal_tvd_ratio": horiz / tvd if tvd else None,
+        "delta_easting_ft": dx,
+        "delta_northing_ft": dy,
+        "coordinate_basis": basis,
+    }
+
+
 def search_keyword(data_dir: Path, keyword: str, filter_text: str | None, limit: int) -> dict[str, Any]:
     return search_terms(data_dir, [keyword], filter_text, limit, label=keyword)
 
@@ -648,20 +699,7 @@ def build_dossier(
         "WELL_TYPE_CODE", "BOREHOLE_STAT_CD", "WATER_DEPTH", "SURF_LATITUDE", "SURF_LONGITUDE", "BOTM_LATITUDE", "BOTM_LONGITUDE",
     ]
 
-    standard_metrics = {}
-    if not points.empty and {"easting", "northing", "Survey Point TVD"}.issubset(points.columns):
-        p = points.sort_values("Survey Point MD") if "Survey Point MD" in points.columns else points
-        dx = float(p["easting"].iloc[-1] - p["easting"].iloc[0])
-        dy = float(p["northing"].iloc[-1] - p["northing"].iloc[0])
-        horiz = float(math.hypot(dx, dy))
-        tvd = float(pd.to_numeric(p["Survey Point TVD"], errors="coerce").iloc[-1])
-        standard_metrics = {
-            "horizontal_distance_ft": horiz,
-            "final_tvd_ft": tvd,
-            "horizontal_tvd_ratio": horiz / tvd if tvd else None,
-            "delta_easting_ft": dx,
-            "delta_northing_ft": dy,
-        }
+    standard_metrics = standard_wellpath_metrics(points)
 
     sections = {
         "borehole": {"records": int(len(bore)), "units": BOREHOLE_UNITS, "sample": top_rows(bore, None, limit)},
@@ -670,8 +708,8 @@ def build_dossier(
             "records": int(len(points)),
             "units": TRAJECTORY_UNITS,
             "metrics": standard_metrics,
-            "numeric_summary": numeric_summary(points, ["Survey Point MD", "Survey Point TVD", "easting", "northing", "Latitude", "Longitude"]),
-            "sample": top_rows(points, ["API Number", "Survey Point MD", "Survey Point TVD", "Incl Ang Deg Val", "easting", "northing", "Latitude", "Longitude"], limit),
+            "numeric_summary": numeric_summary(points, ["Survey Point MD", "Survey Point TVD", "Latitude", "Longitude", "webmerc_easting_ft", "webmerc_northing_ft", "easting", "northing"]),
+            "sample": top_rows(points, ["API Number", "Survey Point MD", "Survey Point TVD", "Incl Ang Deg Val", "Latitude", "Longitude", "webmerc_easting_ft", "webmerc_northing_ft"], limit),
         },
         "azimuth_dls": dls_analysis(azimuth, min_step),
         "geological_markers": {

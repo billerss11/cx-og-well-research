@@ -148,6 +148,17 @@ For known API output, include these sections:
 - WAR casing by report version
 - Open-hole logging runs/tools
 
+## Trajectory Coordinate Rules
+
+Current CX O&G APP trajectory parquet files keep backward-compatible map-coordinate aliases:
+
+- `df_points.easting` / `df_points.northing` are legacy Web Mercator aliases.
+- Prefer `webmerc_easting_ft` / `webmerc_northing_ft` when showing map coordinates.
+- Do not calculate wellpath horizontal displacement from Web Mercator deltas.
+- For source wellpath displacement, use local offsets from `Latitude` / `Longitude`.
+- For calculated path displacement and DLS, use `MD`, `Deviation Angle`, `Azimuth` and minimum-curvature offsets.
+- `df_azimuth.parquet` now preserves `TVD`, `Latitude`, `Longitude`, `Neg TVD`, `webmerc_easting_ft`, and `webmerc_northing_ft` for auditability.
+
 Also include discovery evidence:
 
 - WAR keyword hits if a keyword was supplied
