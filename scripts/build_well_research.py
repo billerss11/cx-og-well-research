@@ -49,6 +49,14 @@ DATASETS = {
     "open_hole_tools": "df_open_hole_tools.parquet",
     "attachments": "df_apd_apm_att.parquet",
     "frs": "df_frs_files_list.parquet",
+    "decom_estimates": "df_mv_decom_cost_estimates.parquet",
+    "decom_inst_pipe": "df_mv_decom_cost_inst_pipe.parquet",
+    "decom_inst_plat": "df_mv_decom_cost_inst_plat.parquet",
+    "decom_prop_pipe": "df_mv_decom_cost_prop_pipe.parquet",
+    "decom_prop_plat": "df_mv_decom_cost_prop_plat.parquet",
+    "decom_prop_well": "df_mv_decom_cost_prop_well.parquet",
+    "decom_spud_well": "df_mv_decom_cost_spud_well.parquet",
+    "decom_totals": "df_mv_decom_cost_totals.parquet",
 }
 
 MIN_REQUIRED_DATASETS = [
@@ -243,10 +251,17 @@ def top_rows(df: pd.DataFrame, columns: list[str] | None, limit: int) -> list[di
 def date_range(df: pd.DataFrame, column: str) -> dict[str, str] | None:
     if df.empty or column not in df.columns:
         return None
-    dates = pd.to_datetime(df[column], errors="coerce").dropna()
+    dates = parse_datetime(df[column]).dropna()
     if dates.empty:
         return None
     return {"first": dates.min().date().isoformat(), "last": dates.max().date().isoformat()}
+
+
+def parse_datetime(value: Any) -> pd.Series:
+    try:
+        return pd.to_datetime(value, errors="coerce", format="mixed")
+    except TypeError:
+        return pd.to_datetime(value, errors="coerce")
 
 
 def numeric_summary(df: pd.DataFrame, columns: list[str]) -> dict[str, dict[str, float]]:
@@ -858,6 +873,483 @@ def build_casing_comparison(apd_casing: pd.DataFrame, war_casing: pd.DataFrame, 
     return result
 
 
+def parse_casing_sizes(value: str | None) -> list[float]:
+    if not value:
+        return []
+    sizes = []
+    for part in re.split(r"[,;| ]+", value):
+        if not part.strip():
+            continue
+        sizes.append(float(part.strip().replace('"', "")))
+    return sizes
+
+
+def casing_size_matches(values: pd.Series, target: float, tolerance: float) -> pd.Series:
+    numeric = pd.to_numeric(values, errors="coerce")
+    return (numeric - target).abs() <= tolerance
+
+
+def build_global_casing_search(
+    data_dir: Path,
+    sizes: list[float],
+    source: str,
+    match_mode: str,
+    tolerance: float,
+    filter_text: str | None,
+    latest_only: bool,
+    limit: int,
+) -> dict[str, Any]:
+    rows = []
+    if source in {"any", "apd"}:
+        rows.append(load_global_apd_casing(data_dir))
+    if source in {"any", "war"}:
+        rows.append(load_global_war_casing(data_dir))
+    casing = pd.concat([df for df in rows if not df.empty], ignore_index=True) if rows else pd.DataFrame()
+
+    result = {
+        "query": {
+            "sizes": sizes,
+            "source": source,
+            "match_mode": match_mode,
+            "tolerance": tolerance,
+            "filter": filter_text,
+            "latest_only": latest_only,
+        },
+        "records_scanned": int(len(casing)),
+        "well_count": 0,
+        "wells": [],
+    }
+    if casing.empty or not sizes:
+        return result
+
+    casing["API_NORM"] = casing["API_WELL_NUMBER"].map(norm_api)
+    casing["CASING_SIZE"] = pd.to_numeric(casing["CASING_SIZE"], errors="coerce")
+    casing = casing.dropna(subset=["API_NORM", "CASING_SIZE"])
+    if latest_only:
+        casing = latest_casing_records(casing)
+
+    if filter_text:
+        haystack = pd.Series("", index=casing.index)
+        for col in ["API_WELL_NUMBER", "WELL_NAME", "WELL_NAME_SUFFIX", "COMPANY_NAME", "FIELD", "OPERATOR FIELD", "AREA", "BLOCK", "LEASE"]:
+            if col in casing.columns:
+                haystack = haystack + " " + casing[col].fillna("").astype(str)
+        casing = casing[haystack.str.casefold().str.contains(filter_text.casefold(), na=False)]
+
+    wells = []
+    for _, group in casing.groupby("API_NORM"):
+        matched_sizes = []
+        matched_records = []
+        for size in sizes:
+            matches = group[casing_size_matches(group["CASING_SIZE"], size, tolerance)]
+            if not matches.empty:
+                matched_sizes.append(size)
+                matched_records.extend(top_rows(matches, casing_output_columns(), limit))
+        if match_mode == "all" and len(matched_sizes) != len(sizes):
+            continue
+        if match_mode == "any" and not matched_sizes:
+            continue
+
+        first = group.iloc[0]
+        wells.append(
+            {
+                "API_WELL_NUMBER": first.get("API_WELL_NUMBER"),
+                "WELL_NAME": first.get("WELL_NAME"),
+                "WELL_NAME_SUFFIX": first.get("WELL_NAME_SUFFIX"),
+                "COMPANY_NAME": first.get("COMPANY_NAME"),
+                "FIELD": first.get("FIELD"),
+                "OPERATOR FIELD": first.get("OPERATOR FIELD"),
+                "AREA": first.get("AREA"),
+                "BLOCK": first.get("BLOCK"),
+                "LEASE": first.get("LEASE"),
+                "matched_sizes": matched_sizes,
+                "missing_sizes": [size for size in sizes if size not in matched_sizes],
+                "sources_available": sorted(str(v) for v in group["DATA_SOURCE"].dropna().unique()),
+                "record_count": int(len(group)),
+                "max_depth_ft": numeric_max(group, "BOTTOM_MD"),
+                "sample": matched_records[:limit],
+            }
+        )
+
+    wells = sorted(wells, key=lambda row: (len(row["matched_sizes"]), row["record_count"], row.get("max_depth_ft") or 0), reverse=True)
+    result["well_count"] = int(len(wells))
+    result["wells"] = wells[:limit]
+    return result
+
+
+def casing_output_columns() -> list[str]:
+    return [
+        "API_WELL_NUMBER",
+        "WELL_NAME",
+        "DATA_SOURCE",
+        "Version",
+        "Record_Date",
+        "Casing_Type",
+        "CASING_SIZE",
+        "CASING_WEIGHT",
+        "CASING_GRADE",
+        "TOP_MD",
+        "BOTTOM_MD",
+    ]
+
+
+def latest_casing_records(casing: pd.DataFrame) -> pd.DataFrame:
+    version = pd.to_numeric(casing.get("Version"), errors="coerce")
+    casing = casing.copy()
+    casing["_version"] = version.fillna(0)
+    latest = casing.groupby(["API_NORM", "DATA_SOURCE"])["_version"].transform("max")
+    return casing[casing["_version"] == latest].drop(columns=["_version"])
+
+
+def load_global_apd_casing(data_dir: Path) -> pd.DataFrame:
+    if not all(parquet_path(data_dir, key).exists() for key in ["apd_main", "apd_casing_intervals", "apd_casing_sections"]):
+        return pd.DataFrame()
+    bore_join = ""
+    bore_cols = "NULL AS WELL_NAME, NULL AS WELL_NAME_SUFFIX, NULL AS COMPANY_NAME, NULL AS FIELD, NULL AS \"OPERATOR FIELD\", NULL AS AREA, NULL AS BLOCK, NULL AS LEASE"
+    if parquet_path(data_dir, "boreholes").exists():
+        bore_join = f'LEFT JOIN {parquet_sql(data_dir, "boreholes")} b ON main.API_WELL_NUMBER = b.API_WELL_NUMBER'
+        bore_cols = 'b.WELL_NAME, b.WELL_NAME_SUFFIX, b.COMPANY_NAME, b.FIELD, b."OPERATOR FIELD", b.AREA, b.BLOCK, b.LEASE'
+    df = duckdb_df(
+        f"""
+        SELECT DISTINCT
+            main.API_WELL_NUMBER,
+            main.SN_APD AS Source_Record_Id,
+            main.APD_SUB_STATUS_DT AS Record_Date,
+            i.CSNG_INTV_TYPE_CD AS Casing_Type,
+            i.CSNG_INTV_NAME AS Casing_Name,
+            s.CASING_SIZE,
+            s.CASING_WEIGHT,
+            s.CASING_GRADE,
+            i.CSNG_TOP_MD AS TOP_MD,
+            s.CASING_SECTION_MD AS BOTTOM_MD,
+            {bore_cols},
+            'APD' AS DATA_SOURCE
+        FROM {parquet_sql(data_dir, "apd_main")} main
+        JOIN {parquet_sql(data_dir, "apd_casing_intervals")} i ON i.SN_APD_FK = main.SN_APD
+        JOIN {parquet_sql(data_dir, "apd_casing_sections")} s ON s.SN_APD_CSNG_INTV_FK = i.SN_APD_CSG_INTV
+        {bore_join}
+        WHERE main.API_WELL_NUMBER IS NOT NULL
+        """
+    )
+    if df.empty:
+        return df
+    df["Record_Date"] = parse_datetime(df["Record_Date"])
+    df = df.sort_values(["API_WELL_NUMBER", "Record_Date", "Source_Record_Id"])
+    df["Version"] = df.groupby("API_WELL_NUMBER")["Source_Record_Id"].transform(lambda s: pd.factorize(s.astype(str))[0] + 1)
+    return df
+
+
+def load_global_war_casing(data_dir: Path) -> pd.DataFrame:
+    if not all(parquet_path(data_dir, key).exists() for key in ["war_main", "war_tubular", "war_tubular_prop"]):
+        return pd.DataFrame()
+    bore_join = ""
+    bore_cols = "NULL AS WELL_NAME, NULL AS WELL_NAME_SUFFIX, NULL AS COMPANY_NAME, NULL AS FIELD, NULL AS \"OPERATOR FIELD\", NULL AS AREA, NULL AS BLOCK, NULL AS LEASE"
+    if parquet_path(data_dir, "boreholes").exists():
+        bore_join = f'LEFT JOIN {parquet_sql(data_dir, "boreholes")} b ON main.API_WELL_NUMBER = b.API_WELL_NUMBER'
+        bore_cols = 'b.WELL_NAME, b.WELL_NAME_SUFFIX, b.COMPANY_NAME, b.FIELD, b."OPERATOR FIELD", b.AREA, b.BLOCK, b.LEASE'
+    df = duckdb_df(
+        f"""
+        SELECT DISTINCT
+            main.API_WELL_NUMBER,
+            main.SN_WAR AS Source_Record_Id,
+            main.WAR_END_DT AS Record_Date,
+            summ.CSNG_INTV_TYPE_CD AS Casing_Type,
+            NULL AS Casing_Name,
+            summ.CASING_SIZE,
+            summ.CASING_WEIGHT,
+            summ.CASING_GRADE,
+            prop.CSNG_SETTING_TOP_MD AS TOP_MD,
+            prop.CSNG_SETTING_BOTM_MD AS BOTTOM_MD,
+            {bore_cols},
+            'WAR' AS DATA_SOURCE
+        FROM {parquet_sql(data_dir, "war_main")} main
+        JOIN {parquet_sql(data_dir, "war_tubular")} summ ON main.SN_WAR = summ.SN_WAR_FK
+        JOIN {parquet_sql(data_dir, "war_tubular_prop")} prop
+            ON summ.SN_WAR_FK = prop.SN_WAR_FK
+           AND summ.SN_WAR_CSNG_INTV = prop.SN_WAR_CSNG_INTV_FK
+        {bore_join}
+        WHERE main.API_WELL_NUMBER IS NOT NULL
+        """
+    )
+    if df.empty:
+        return df
+    df["Record_Date"] = parse_datetime(df["Record_Date"])
+    df = df.sort_values(["API_WELL_NUMBER", "Record_Date", "Source_Record_Id"])
+    df["Version"] = df.groupby("API_WELL_NUMBER")["Source_Record_Id"].transform(lambda s: pd.factorize(s.astype(str))[0] + 1)
+    return df
+
+
+DECOM_CASE_COLUMNS = {
+    "p50": {
+        "totals": ["P50_COST"],
+        "wells": ["WELL_INST_DCOM_P50"],
+        "pipelines": ["SEGMENT_DCOM_P50"],
+        "platforms": ["PLT_REMOVAL_DCOM_P50", "PLT_SITE_CLRNC_DCOM_P50"],
+    },
+    "p70": {
+        "totals": ["P70_COST"],
+        "wells": ["WELL_INST_DCOM_P70"],
+        "pipelines": ["SEGMENT_DCOM_P70"],
+        "platforms": ["PLT_REMOVAL_DCOM_P70", "PLT_SITE_CLRNC_DCOM_P70"],
+    },
+    "p90": {
+        "totals": ["P90_COST"],
+        "wells": ["WELL_INST_DCOM_P90"],
+        "pipelines": ["SEGMENT_DCOM_P90"],
+        "platforms": ["PLT_REMOVAL_DCOM_P90", "PLT_SITE_CLRNC_DCOM_P90"],
+    },
+    "dtr": {
+        "totals": ["DTR_COST"],
+        "wells": ["WELL_INST_DCOM_INDTR"],
+        "pipelines": ["SEGMENT_DCOM_INDTR"],
+        "platforms": ["PLT_REMOVAL_DCOM_INDTR", "PLT_SITE_CLRNC_DCOM_INDTR"],
+    },
+}
+
+
+def build_decom_research(
+    data_dir: Path,
+    lease: str | None,
+    api: str | None,
+    area: str | None,
+    block: str | None,
+    min_cost: float | None,
+    cost_case: str,
+    pa_adjustment: str | None,
+    limit: int,
+) -> dict[str, Any]:
+    cost_case = cost_case.casefold()
+    result = {
+        "filters": {
+            "lease": lease,
+            "api": api,
+            "area": area,
+            "block": block,
+            "min_cost": min_cost,
+            "cost_case": cost_case,
+            "pa_adjustment": pa_adjustment,
+        },
+        "sections": {},
+    }
+
+    derived_lease_numbers = derive_decom_api_leases(data_dir, api) if api and not lease else set()
+    estimates = apply_decom_common_filters(read_dataset(data_dir, "decom_estimates"), lease, None, area, block, pa_adjustment, None)
+    if not lease and derived_lease_numbers:
+        estimates = filter_df_by_lease_set(estimates, "LEASE_NUMBER", derived_lease_numbers)
+    lease_numbers = decom_lease_numbers(estimates)
+    result["sections"]["lease_estimates"] = decom_section(estimates, None, limit)
+
+    totals = read_dataset(data_dir, "decom_totals")
+    totals = filter_decom_lease(totals, ["AUTH_NUMBER"], lease)
+    if not lease and (lease_numbers or derived_lease_numbers):
+        totals = filter_df_by_lease_set(totals, "AUTH_NUMBER", lease_numbers or derived_lease_numbers)
+    totals = filter_decom_min_cost(totals, DECOM_CASE_COLUMNS[cost_case]["totals"], min_cost)
+    result["sections"]["totals"] = decom_section(totals, DECOM_CASE_COLUMNS[cost_case]["totals"], limit)
+
+    installed_wells = apply_decom_common_filters(
+        read_dataset(data_dir, "decom_spud_well"),
+        lease,
+        api,
+        area,
+        block,
+        None,
+        ["BOTM_LEASE_NUM", "SURF_LEASE_NUM"],
+    )
+    installed_wells = filter_decom_min_cost(installed_wells, DECOM_CASE_COLUMNS[cost_case]["wells"], min_cost)
+    result["sections"]["installed_wells"] = decom_section(installed_wells, DECOM_CASE_COLUMNS[cost_case]["wells"], limit)
+
+    proposed_wells = apply_decom_common_filters(
+        read_dataset(data_dir, "decom_prop_well"),
+        lease,
+        api,
+        area,
+        block,
+        None,
+        ["BOTM_LEASE_NUM", "SURF_LEASE_NUM"],
+    )
+    proposed_wells = filter_decom_min_cost(proposed_wells, DECOM_CASE_COLUMNS[cost_case]["wells"], min_cost)
+    result["sections"]["proposed_wells"] = decom_section(proposed_wells, DECOM_CASE_COLUMNS[cost_case]["wells"], limit)
+
+    result["sections"]["installed_platforms"] = build_decom_asset_section(
+        data_dir, "decom_inst_plat", "platforms", lease, derived_lease_numbers, area, block, min_cost, cost_case, limit
+    )
+    result["sections"]["proposed_platforms"] = build_decom_asset_section(
+        data_dir, "decom_prop_plat", "platforms", lease, derived_lease_numbers, area, block, min_cost, cost_case, limit
+    )
+    result["sections"]["installed_pipelines"] = build_decom_asset_section(
+        data_dir, "decom_inst_pipe", "pipelines", lease, derived_lease_numbers, area, block, min_cost, cost_case, limit
+    )
+    result["sections"]["proposed_pipelines"] = build_decom_asset_section(
+        data_dir, "decom_prop_pipe", "pipelines", lease, derived_lease_numbers, area, block, min_cost, cost_case, limit
+    )
+
+    result["summary"] = {
+        name: section["records"]
+        for name, section in result["sections"].items()
+    }
+    return result
+
+
+def build_decom_asset_section(
+    data_dir: Path,
+    dataset: str,
+    kind: str,
+    lease: str | None,
+    lease_numbers: set[str],
+    area: str | None,
+    block: str | None,
+    min_cost: float | None,
+    cost_case: str,
+    limit: int,
+) -> dict[str, Any]:
+    df = read_dataset(data_dir, dataset)
+    if df.empty:
+        return decom_section(df, DECOM_CASE_COLUMNS[cost_case][kind], limit)
+    if kind == "platforms":
+        df = apply_decom_common_filters(df, lease, None, area, block, None, ["AUTH_NUMBER"])
+        if not lease and lease_numbers:
+            df = filter_df_by_lease_set(df, "AUTH_NUMBER", lease_numbers)
+    else:
+        df = apply_decom_common_filters(df, lease, None, area, block, None, ["AUTH_NUMBER", "ORIG_LSE_NUM", "DEST_LSE_NUM"])
+        if not lease and lease_numbers:
+            df = filter_df_by_any_lease_set(df, ["AUTH_NUMBER", "ORIG_LSE_NUM", "DEST_LSE_NUM"], lease_numbers)
+    df = filter_decom_min_cost(df, DECOM_CASE_COLUMNS[cost_case][kind], min_cost)
+    return decom_section(df, DECOM_CASE_COLUMNS[cost_case][kind], limit)
+
+
+def derive_decom_api_leases(data_dir: Path, api: str | None) -> set[str]:
+    if not api:
+        return set()
+    leases = set()
+    for dataset in ["decom_spud_well", "decom_prop_well"]:
+        df = read_dataset(data_dir, dataset)
+        if df.empty or "API_WELL_NUMBER" not in df.columns:
+            continue
+        filtered = df[df["API_WELL_NUMBER"].map(norm_api) == norm_api(api)]
+        for col in ["BOTM_LEASE_NUM", "SURF_LEASE_NUM"]:
+            if col in filtered.columns:
+                leases.update(filtered[col].map(lease_key).dropna())
+    return {lease for lease in leases if lease}
+
+
+def apply_decom_common_filters(
+    df: pd.DataFrame,
+    lease: str | None,
+    api: str | None,
+    area: str | None,
+    block: str | None,
+    pa_adjustment: str | None,
+    lease_columns: list[str] | None,
+) -> pd.DataFrame:
+    if df.empty:
+        return df
+    out = df.copy()
+    if lease:
+        if lease_columns:
+            out = filter_decom_lease(out, lease_columns, lease)
+        elif "LEASE_NUMBER" in out.columns:
+            out = filter_decom_lease(out, ["LEASE_NUMBER"], lease)
+    if api and "API_WELL_NUMBER" in out.columns:
+        target = norm_api(api)
+        out = out[out["API_WELL_NUMBER"].map(norm_api) == target]
+    if area:
+        area_cols = [c for c in ["AREA_CODE", "BOTM_AREA_CODE", "SURF_AREA_CODE", "ORIG_AR_CODE", "DEST_AR_CODE"] if c in out.columns]
+        out = filter_text_columns(out, area_cols, area)
+    if block:
+        block_cols = [c for c in ["BLOCK_NUMBER", "BOTM_BLOCK_NUM", "SURF_BLOCK_NUM", "ORIG_BLK_NUM", "DEST_BLK_NUM"] if c in out.columns]
+        out = filter_text_columns(out, block_cols, block)
+    if pa_adjustment and "PA_ADJUSTMENT_FL" in out.columns:
+        out = out[out["PA_ADJUSTMENT_FL"].fillna("").astype(str).str.casefold() == pa_adjustment.casefold()]
+    return out
+
+
+def filter_text_columns(df: pd.DataFrame, columns: list[str], value: str) -> pd.DataFrame:
+    if not columns:
+        return df
+    target = value.casefold()
+    mask = pd.Series(False, index=df.index)
+    for col in columns:
+        mask = mask | df[col].fillna("").astype(str).str.casefold().eq(target)
+    return df[mask]
+
+
+def filter_decom_lease(df: pd.DataFrame, columns: list[str], lease: str | None) -> pd.DataFrame:
+    if df.empty or not lease:
+        return df
+    mask = pd.Series(False, index=df.index)
+    for col in columns:
+        if col in df.columns:
+            mask = mask | df[col].map(lambda value: lease_matches(value, lease))
+    return df[mask]
+
+
+def filter_df_by_lease_set(df: pd.DataFrame, column: str, lease_numbers: set[str]) -> pd.DataFrame:
+    if df.empty or column not in df.columns:
+        return df
+    return df[df[column].map(lambda value: lease_key(value) in lease_numbers)]
+
+
+def filter_df_by_any_lease_set(df: pd.DataFrame, columns: list[str], lease_numbers: set[str]) -> pd.DataFrame:
+    if df.empty:
+        return df
+    mask = pd.Series(False, index=df.index)
+    for col in columns:
+        if col in df.columns:
+            mask = mask | df[col].map(lambda value: lease_key(value) in lease_numbers)
+    return df[mask]
+
+
+def lease_matches(value: Any, lease: str) -> bool:
+    return lease_key(value) == lease_key(lease)
+
+
+def lease_key(value: Any) -> str:
+    text = "" if value is None or pd.isna(value) else str(value).strip().upper()
+    digits = "".join(ch for ch in text if ch.isdigit()).lstrip("0")
+    return digits or text
+
+
+def decom_lease_numbers(df: pd.DataFrame) -> set[str]:
+    if df.empty or "LEASE_NUMBER" not in df.columns:
+        return set()
+    return set(df["LEASE_NUMBER"].map(lease_key).dropna())
+
+
+def filter_decom_min_cost(df: pd.DataFrame, columns: list[str], min_cost: float | None) -> pd.DataFrame:
+    if df.empty or min_cost is None:
+        return df
+    present = [col for col in columns if col in df.columns]
+    if not present:
+        return df.iloc[0:0]
+    costs = df[present].apply(pd.to_numeric, errors="coerce").fillna(0)
+    return df[costs.max(axis=1) >= min_cost]
+
+
+def decom_section(df: pd.DataFrame, cost_columns: list[str] | None, limit: int) -> dict[str, Any]:
+    section = {
+        "records": int(len(df)),
+        "sample": top_rows(sort_decom_rows(df, cost_columns), None, limit),
+    }
+    if cost_columns:
+        present = [col for col in cost_columns if col in df.columns]
+        section["cost_columns"] = present
+        if present and not df.empty:
+            values = df[present].apply(pd.to_numeric, errors="coerce").fillna(0)
+            section["cost_sum"] = {col: float(values[col].sum()) for col in present}
+            section["cost_max"] = {col: float(values[col].max()) for col in present}
+    return section
+
+
+def sort_decom_rows(df: pd.DataFrame, cost_columns: list[str] | None) -> pd.DataFrame:
+    if df.empty or not cost_columns:
+        return df
+    present = [col for col in cost_columns if col in df.columns]
+    if not present:
+        return df
+    out = df.copy()
+    out["_sort_cost"] = out[present].apply(pd.to_numeric, errors="coerce").fillna(0).max(axis=1)
+    return out.sort_values("_sort_cost", ascending=False).drop(columns=["_sort_cost"])
+
+
 def latest_version_rows(df: pd.DataFrame, version_col: str) -> pd.DataFrame:
     if df.empty or version_col not in df.columns:
         return pd.DataFrame()
@@ -896,7 +1388,7 @@ def build_timeline(
     events: list[dict[str, Any]] = []
 
     def add(date_value: Any, source: str, event: str, details: Any = None) -> None:
-        date = pd.to_datetime(date_value, errors="coerce")
+        date = parse_datetime(date_value)
         if pd.isna(date):
             return
         events.append({"date": date, "source": source, "event": event, "details": details})
@@ -964,7 +1456,7 @@ def build_apd_casing(data_dir: Path, apd: pd.DataFrame) -> pd.DataFrame:
     if apd.empty or "SN_APD" not in apd.columns:
         return pd.DataFrame()
     main = apd[["SN_APD", "APD_SUB_STATUS_DT"]].copy() if "APD_SUB_STATUS_DT" in apd.columns else apd[["SN_APD"]].copy()
-    main["Submission_Date"] = pd.to_datetime(main.get("APD_SUB_STATUS_DT"), errors="coerce")
+    main["Submission_Date"] = parse_datetime(main.get("APD_SUB_STATUS_DT"))
     main = main.sort_values("Submission_Date")
     main["Submission_Version"] = pd.factorize(main["SN_APD"])[0] + 1
     sn_apds = [str(v) for v in main["SN_APD"].dropna().astype(str)]
@@ -1007,7 +1499,7 @@ def build_war_casing(data_dir: Path, war_main: pd.DataFrame) -> pd.DataFrame:
     if war_main.empty or "SN_WAR" not in war_main.columns:
         return pd.DataFrame()
     main = war_main[["SN_WAR", "WAR_END_DT"]].copy()
-    main["Report_End_Date"] = pd.to_datetime(main["WAR_END_DT"], errors="coerce")
+    main["Report_End_Date"] = parse_datetime(main["WAR_END_DT"])
     dated = main[main["Report_End_Date"].notna()].sort_values("Report_End_Date").copy()
     if not dated.empty:
         dated["Report_Version"] = pd.factorize(dated["Report_End_Date"])[0] + 2
@@ -1185,6 +1677,61 @@ def print_field_audit(audit: dict[str, Any]) -> None:
         )
 
 
+def print_casing_search(result: dict[str, Any]) -> None:
+    query = result["query"]
+    print("# Global Casing Search")
+    print(f"\n- Sizes: {', '.join(str(size) for size in query['sizes'])}")
+    print(f"- Source: {query['source']}")
+    print(f"- Match mode: {query['match_mode']}")
+    print(f"- Tolerance: +/- {query['tolerance']} in")
+    print(f"- Latest only: {query['latest_only']}")
+    if query.get("filter"):
+        print(f"- Filter: `{query['filter']}`")
+    print(f"- Records scanned: {result['records_scanned']}")
+    print(f"- Wells matched: {result['well_count']}")
+    print("\n## Wells")
+    if not result["wells"]:
+        print("- No matching wells.")
+    for row in result["wells"]:
+        location = ", ".join(str(row.get(col)) for col in ["OPERATOR FIELD", "AREA", "BLOCK"] if row.get(col))
+        print(
+            f"- {row['API_WELL_NUMBER']}: {row.get('WELL_NAME') or ''} {row.get('WELL_NAME_SUFFIX') or ''}, "
+            f"{location}, matched={row['matched_sizes']}, missing={row['missing_sizes']}, "
+            f"sources={row['sources_available']}, records={row['record_count']}, max_depth_ft={row.get('max_depth_ft')}"
+        )
+        sample = row.get("sample") or []
+        if sample:
+            print("  - sample:")
+            for sample_row in sample:
+                print(f"    - {json.dumps(to_jsonable(sample_row), ensure_ascii=False, default=str)}")
+
+
+def print_decom_research(result: dict[str, Any]) -> None:
+    filters = result["filters"]
+    print("# Decommissioning Research")
+    print("\n## Filters")
+    for key, value in filters.items():
+        if value is not None:
+            print(f"- {key}: {value}")
+    print("\n## Summary")
+    for name, count in result["summary"].items():
+        print(f"- {name}: {count}")
+    for name, section in result["sections"].items():
+        print(f"\n## {name.replace('_', ' ').title()}")
+        print(f"- records: {section['records']}")
+        if section.get("cost_columns"):
+            print(f"- cost_columns: {json.dumps(section['cost_columns'], ensure_ascii=False)}")
+        if section.get("cost_sum"):
+            print(f"- cost_sum: {json.dumps(to_jsonable(section['cost_sum']), ensure_ascii=False)}")
+        if section.get("cost_max"):
+            print(f"- cost_max: {json.dumps(to_jsonable(section['cost_max']), ensure_ascii=False)}")
+        sample = section.get("sample") or []
+        if sample:
+            print("- sample:")
+            for row in sample:
+                print(f"  - {json.dumps(to_jsonable(row), ensure_ascii=False, default=str)}")
+
+
 def print_data_dir_check(validation: dict[str, Any]) -> None:
     print("# Data Directory Check")
     print(f"\n- Data dir: `{validation['data_dir']}`")
@@ -1258,6 +1805,19 @@ def main() -> int:
     parser.add_argument("--incident", help=f"Incident search preset. Known: {', '.join(sorted(INCIDENT_TERMS))}.")
     parser.add_argument("--field", help="Field/operator/name text for field research or audit.")
     parser.add_argument("--filter", help="Optional text filter for keyword discovery, e.g. field/operator/well.")
+    parser.add_argument("--casing-sizes", help='Global casing search by size list, e.g. "13.375,9.625".')
+    parser.add_argument("--casing-source", choices=["any", "apd", "war"], default="any", help="Casing source for --casing-sizes.")
+    parser.add_argument("--casing-match", choices=["all", "any"], default="all", help="Require all casing sizes or any one size.")
+    parser.add_argument("--casing-tolerance", type=float, default=0.01, help="Casing size match tolerance in inches.")
+    parser.add_argument("--casing-latest-only", action="store_true", help="Search only the latest APD/WAR casing version per well.")
+    parser.add_argument("--decom", action="store_true", help="Search decommissioning cost and inventory parquet tables.")
+    parser.add_argument("--decom-lease", help="Lease/auth number for decommissioning search, e.g. G34454 or 34454.")
+    parser.add_argument("--decom-api", help="API well number for decommissioning well cost search.")
+    parser.add_argument("--decom-area", help="Area code for decommissioning search.")
+    parser.add_argument("--decom-block", help="Block number for decommissioning search.")
+    parser.add_argument("--decom-min-cost", type=float, help="Minimum decommissioning cost for selected percentile/case.")
+    parser.add_argument("--decom-cost-case", choices=["p50", "p70", "p90", "dtr"], default="p90", help="Cost case used for filtering and ranking.")
+    parser.add_argument("--decom-pa-adjustment", choices=["Y", "N", "y", "n"], help="Filter lease estimates by PA_ADJUSTMENT_FL.")
     parser.add_argument("--include-production", action="store_true", help="Include production history summary in API dossier.")
     parser.add_argument("--production-group-by", help="Add plot-ready monthly production points grouped by Completion Name, Product Code, or Production Interval Code.")
     parser.add_argument("--completion-reconcile", action="store_true", help="Compare production completion identifiers with EOR physical completion records.")
@@ -1284,6 +1844,41 @@ def main() -> int:
         emit_result(validation, args.format, args.output, print_data_dir_check)
         return 0 if validation["ok"] else 2
 
+    if args.casing_sizes:
+        try:
+            casing_sizes = parse_casing_sizes(args.casing_sizes)
+        except ValueError as exc:
+            parser.error(f"Invalid --casing-sizes value: {exc}")
+        if not casing_sizes:
+            parser.error("--casing-sizes requires at least one numeric size")
+        result = build_global_casing_search(
+            data_dir,
+            casing_sizes,
+            args.casing_source,
+            args.casing_match,
+            args.casing_tolerance,
+            args.filter or args.field,
+            args.casing_latest_only,
+            limit,
+        )
+        emit_result(result, args.format, args.output, print_casing_search)
+        return 0
+
+    if args.decom or args.decom_lease or args.decom_api or args.decom_area or args.decom_block or args.decom_min_cost is not None:
+        result = build_decom_research(
+            data_dir=data_dir,
+            lease=args.decom_lease,
+            api=args.decom_api,
+            area=args.decom_area,
+            block=args.decom_block,
+            min_cost=args.decom_min_cost,
+            cost_case=args.decom_cost_case,
+            pa_adjustment=args.decom_pa_adjustment.upper() if args.decom_pa_adjustment else None,
+            limit=limit,
+        )
+        emit_result(result, args.format, args.output, print_decom_research)
+        return 0
+
     if args.incident and not args.api:
         result = search_incident(data_dir, args.incident, args.filter or args.field, limit)
         emit_result(result, args.format, args.output, print_search)
@@ -1300,7 +1895,7 @@ def main() -> int:
         return 0
 
     if not args.api:
-        parser.error("--api, --keyword, --incident, or --field is required")
+        parser.error("--api, --keyword, --incident, --field, --casing-sizes, or --decom is required")
 
     dossier = build_dossier(
         data_dir,

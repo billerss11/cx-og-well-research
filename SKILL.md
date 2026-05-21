@@ -60,6 +60,36 @@ Field data-completeness audit:
 conda run -n codex_env python C:\Users\17999\.codex\skills\cx-og-well-research\scripts\build_well_research.py --field MADISON --audit --data-dir J:\cx_coding_project_unsyc\python\CX_O-G_APP\data
 ```
 
+Global casing search:
+
+```powershell
+conda run -n codex_env python C:\Users\17999\.codex\skills\cx-og-well-research\scripts\build_well_research.py --casing-sizes "13.375,9.625" --data-dir J:\cx_coding_project_unsyc\python\CX_O-G_APP\data
+```
+
+Global casing search filtered to WAR records and a field/operator/name:
+
+```powershell
+conda run -n codex_env python C:\Users\17999\.codex\skills\cx-og-well-research\scripts\build_well_research.py --casing-sizes "13.375,9.625" --casing-source war --filter MADISON --data-dir J:\cx_coding_project_unsyc\python\CX_O-G_APP\data
+```
+
+Decommissioning by lease:
+
+```powershell
+conda run -n codex_env python C:\Users\17999\.codex\skills\cx-og-well-research\scripts\build_well_research.py --decom-lease G34454 --data-dir J:\cx_coding_project_unsyc\python\CX_O-G_APP\data
+```
+
+Decommissioning by API well:
+
+```powershell
+conda run -n codex_env python C:\Users\17999\.codex\skills\cx-og-well-research\scripts\build_well_research.py --decom-api 177174027700 --data-dir J:\cx_coding_project_unsyc\python\CX_O-G_APP\data
+```
+
+Decommissioning ranking/filter:
+
+```powershell
+conda run -n codex_env python C:\Users\17999\.codex\skills\cx-og-well-research\scripts\build_well_research.py --decom --decom-area GC --decom-block 100 --decom-min-cost 1000000 --decom-cost-case p90 --data-dir J:\cx_coding_project_unsyc\python\CX_O-G_APP\data
+```
+
 JSON:
 
 ```powershell
@@ -133,6 +163,10 @@ Optional analysis sections:
 - `--timeline`: chronological events from borehole, APD, WAR, casing, logging, BHP, EOR, perforations, and production.
 - `--incident`: preset keyword bundles such as `stuck-pipe`, `lost-circulation`, `kick`, `fishing`, `cementing`, and `logging`.
 - `--field ... --audit`: rank matching wells by data availability across WAR, production, trajectory, APD, BHP, EOR, attachments, and FRS.
+- `--casing-sizes ...`: global search for wells with matching APD/WAR casing sizes. Use `--casing-source any|apd|war`, `--casing-match all|any`, `--casing-tolerance`, `--casing-latest-only`, and `--filter`.
+- `--decom`, `--decom-lease`, `--decom-api`, `--decom-area`, `--decom-block`: search decommissioning cost and inventory tables.
+- `--decom-min-cost ... --decom-cost-case p50|p70|p90|dtr`: filter/rank decommissioning rows by estimate case.
+- `--decom-pa-adjustment Y|N`: filter lease estimate rows by PA adjustment flag.
 
 ## Answer Rules
 
