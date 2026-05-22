@@ -36,6 +36,7 @@ DATASETS = {
     "war_tubular_prop": "df_mv_war_tubular_summaries_prop.parquet",
     "points": "df_points.parquet",
     "azimuth": "df_azimuth.parquet",
+    "wellpath_metrics": "df_wellpath_metrics.parquet",
     "bhp": "df_bhp_survey.parquet",
     "eor_main": "df_eor_mv_eor_mainquery.parquet",
     "eor_geomarkers": "df_eor_mv_eor_geomarkers.parquet",
@@ -154,10 +155,54 @@ TRAJECTORY_UNITS = {
     "Dir Deg Val": "deg",
     "Dir Mins Val": "arcmin",
     "horizontal_distance_ft": "ft",
+    "first_tvd_ft": "ft",
     "final_tvd_ft": "ft",
+    "tvd_delta_ft": "ft",
     "delta_easting_ft": "ft",
     "delta_northing_ft": "ft",
     "coordinate_basis": "text",
+}
+
+WELLPATH_METRICS_UNITS = {
+    "source_horizontal_distance_ft": "ft",
+    "source_endpoint_east_offset_ft": "ft",
+    "source_endpoint_north_offset_ft": "ft",
+    "source_closure_azimuth_deg": "deg",
+    "source_max_horizontal_departure_ft": "ft",
+    "source_max_departure_md": "ft",
+    "source_md_delta_ft": "ft",
+    "source_tvd_delta_ft": "ft",
+    "source_horizontal_tvd_ratio": "ratio",
+    "source_min_md_spacing_ft": "ft",
+    "source_median_md_spacing_ft": "ft",
+    "calc_horizontal_distance_ft": "ft",
+    "calc_endpoint_east_offset_ft": "ft",
+    "calc_endpoint_north_offset_ft": "ft",
+    "calc_closure_azimuth_deg": "deg",
+    "calc_max_horizontal_departure_ft": "ft",
+    "calc_max_departure_md": "ft",
+    "calc_md_delta_ft": "ft",
+    "calc_tvd_delta_ft": "ft",
+    "calc_horizontal_tvd_ratio": "ratio",
+    "calc_min_md_spacing_ft": "ft",
+    "calc_median_md_spacing_ft": "ft",
+    "calc_max_inclination_deg": "deg",
+    "calc_avg_inclination_deg": "deg",
+    "calc_final_inclination_deg": "deg",
+    "calc_first_md_over_60deg": "ft",
+    "calc_first_md_over_80deg": "ft",
+    "calc_lateral_length_over_80deg_ft": "ft",
+    "calc_max_dls_deg_per_100ft": "deg/100ft",
+    "calc_avg_dls_deg_per_100ft": "deg/100ft",
+    "calc_p95_dls_deg_per_100ft": "deg/100ft",
+    "calc_cumulative_dogleg_deg": "deg",
+    "horizontal_distance_diff_ft": "ft",
+    "source_calc_hd_diff_pct": "pct",
+    "horizontal_tvd_ratio_diff": "ratio",
+    "source_first_md": "ft",
+    "source_last_md": "ft",
+    "calc_first_md": "ft",
+    "calc_last_md": "ft",
 }
 
 AZIMUTH_DLS_UNITS = {
@@ -536,7 +581,10 @@ def standard_wellpath_metrics(points: pd.DataFrame) -> dict[str, Any]:
         return {}
 
     p = points.sort_values("Survey Point MD") if "Survey Point MD" in points.columns else points.copy()
-    tvd = float(pd.to_numeric(p["Survey Point TVD"], errors="coerce").iloc[-1])
+    tvd_values = pd.to_numeric(p["Survey Point TVD"], errors="coerce")
+    first_tvd = float(tvd_values.iloc[0])
+    final_tvd = float(tvd_values.iloc[-1])
+    tvd_delta = final_tvd - first_tvd
 
     if {"Longitude", "Latitude"}.issubset(p.columns):
         east, north = lon_lat_to_local_offsets_ft(p["Longitude"], p["Latitude"])
@@ -552,13 +600,15 @@ def standard_wellpath_metrics(points: pd.DataFrame) -> dict[str, Any]:
         dy = float(p["northing"].iloc[-1] - p["northing"].iloc[0])
         basis = "webmerc_legacy_fallback"
     else:
-        return {"final_tvd_ft": tvd, "coordinate_basis": "unavailable"}
+        return {"first_tvd_ft": first_tvd, "final_tvd_ft": final_tvd, "tvd_delta_ft": tvd_delta, "coordinate_basis": "unavailable"}
 
     horiz = float(math.hypot(dx, dy))
     return {
         "horizontal_distance_ft": horiz,
-        "final_tvd_ft": tvd,
-        "horizontal_tvd_ratio": horiz / tvd if tvd else None,
+        "first_tvd_ft": first_tvd,
+        "final_tvd_ft": final_tvd,
+        "tvd_delta_ft": tvd_delta,
+        "horizontal_tvd_ratio": horiz / tvd_delta if tvd_delta else None,
         "delta_easting_ft": dx,
         "delta_northing_ft": dy,
         "coordinate_basis": basis,
@@ -676,6 +726,7 @@ def build_dossier(
 
     points = query_api_dataset(data_dir, "points", "API Number", api, order_by="Survey Point MD")
     azimuth = query_api_dataset(data_dir, "azimuth", "API Number", api, order_by="MD")
+    wellpath_metrics = query_api_dataset(data_dir, "wellpath_metrics", "API Number", api)
     bhp = query_api_dataset(data_dir, "bhp", "API_WELL_NUMBER", api, order_by="BHTST_DATE")
     if not bhp.empty:
         bhp = bhp.drop_duplicates(subset=[c for c in ["BHTST_DATE", "BHTST_MD", "BHTST_TVD", "BHTST_PRESSURE", "BHTST_SI_PRSS", "BHTST_TEMP"] if c in bhp.columns])
@@ -710,6 +761,12 @@ def build_dossier(
             "metrics": standard_metrics,
             "numeric_summary": numeric_summary(points, ["Survey Point MD", "Survey Point TVD", "Latitude", "Longitude", "webmerc_easting_ft", "webmerc_northing_ft", "easting", "northing"]),
             "sample": top_rows(points, ["API Number", "Survey Point MD", "Survey Point TVD", "Incl Ang Deg Val", "Latitude", "Longitude", "webmerc_easting_ft", "webmerc_northing_ft"], limit),
+        },
+        "wellpath_metrics": {
+            "records": int(len(wellpath_metrics)),
+            "source": "df_wellpath_metrics.parquet",
+            "units": WELLPATH_METRICS_UNITS,
+            "sample": top_rows(wellpath_metrics, None, 1),
         },
         "azimuth_dls": dls_analysis(azimuth, min_step),
         "geological_markers": {
@@ -1793,6 +1850,7 @@ def build_field_audit(data_dir: Path, field: str, limit: int) -> dict[str, Any]:
         "war": api_set(data_dir, "war_main", "API_WELL_NUMBER"),
         "production": api_set(data_dir, "production", "Api Well Number"),
         "trajectory": api_set(data_dir, "points", "API Number"),
+        "wellpath_metrics": api_set(data_dir, "wellpath_metrics", "API Number"),
         "apd": api_set(data_dir, "apd_main", "API_WELL_NUMBER"),
         "bhp": api_set(data_dir, "bhp", "API_WELL_NUMBER"),
         "eor": api_set(data_dir, "eor_main", "API_WELL_NUMBER"),

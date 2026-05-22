@@ -102,6 +102,12 @@ Save output for another renderer:
 conda run -n codex_env python C:\Users\17999\.codex\skills\cx-og-well-research\scripts\build_well_research.py --api 608054000500 --include-production --casing-compare --timeline --format json --output well_608054000500.json --data-dir J:\cx_coding_project_unsyc\python\CX_O-G_APP\data
 ```
 
+Full trajectory JSON for 2D/3D renderers:
+
+```powershell
+conda run -n codex_env python C:\Users\17999\.codex\skills\cx-og-well-research\scripts\build_well_research.py --api 608054000500 --full --format json --output well_608054000500_full.json --data-dir J:\cx_coding_project_unsyc\python\CX_O-G_APP\data
+```
+
 Plot-ready production JSON:
 
 ```powershell
@@ -125,8 +131,9 @@ conda run -n codex_env python C:\Users\17999\.codex\skills\cx-og-well-research\s
 Do not render HTML inside this skill unless the user explicitly asks. Prefer this workflow:
 
 1. Use this skill to generate evidence as JSON with `--format json --output ...`.
-2. Pass that JSON file to a separate HTML/report/front-end skill or app.
-3. The renderer should preserve source fields, units, dates, data availability counts, and absent-record notes.
+2. For trajectory plots/viewers, add `--full`; default JSON contains preview/sample rows, not necessarily every station.
+3. Pass that JSON file to a separate HTML/report/front-end skill or app.
+4. The renderer should preserve source fields, units, dates, data availability counts, and absent-record notes.
 
 Markdown output can also be saved with `--format markdown --output ...` when the renderer is Markdown-first.
 
@@ -139,6 +146,7 @@ For known API output, include these sections:
 - Raw wellpath survey data
 - Azimuth/deviation data
 - DLS metrics and MD spacing issues
+- Derived per-well wellpath metrics from `df_wellpath_metrics.parquet`
 - Standard wellpath metrics
 - Calculated path metrics
 - Geological markers
@@ -157,7 +165,14 @@ Current CX O&G APP trajectory parquet files keep backward-compatible map-coordin
 - Do not calculate wellpath horizontal displacement from Web Mercator deltas.
 - For source wellpath displacement, use local offsets from `Latitude` / `Longitude`.
 - For calculated path displacement and DLS, use `MD`, `Deviation Angle`, `Azimuth` and minimum-curvature offsets.
+- For 3D viewers, build local east/north offsets from `Latitude` / `Longitude`; use TVD/depth as the vertical axis and label any vertical scale/exaggeration clearly.
+- If the first survey station MD is above 0, surface-to-first-survey is only a visual guide unless source data provides that segment.
+- Prefer `df_wellpath_metrics.parquet` for query/export/ranking of per-well horizontal distance, TVD delta, closure azimuth, max departure, inclination, lateral length, DLS summary, trajectory type, and metric quality/status.
 - `df_azimuth.parquet` now preserves `TVD`, `Latitude`, `Longitude`, `Neg TVD`, `webmerc_easting_ft`, and `webmerc_northing_ft` for auditability.
+
+`df_wellpath_metrics.parquet` is one row per API. Its source metrics are based on source survey lon/lat endpoints and TVD delta; its calculated metrics are based on full real MD/inc/azimuth stations via minimum curvature. It does not use plot-only artificial MD=0 rows.
+
+Trajectory type uses documented thresholds: `horizontal` when max inclination is at least 80 degrees from vertical; `vertical` when MD-weighted average inclination is at most 3 degrees; `directional` is the remaining non-horizontal, non-vertical class.
 
 Also include discovery evidence:
 
