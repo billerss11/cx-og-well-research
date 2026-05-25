@@ -9,6 +9,7 @@ import io
 import json
 import math
 import re
+import sys
 import warnings
 from pathlib import Path
 from typing import Any
@@ -292,6 +293,67 @@ DECOM_UNITS = {
     "BLK_MAX_WTR_DPTH": "ft",
 }
 
+TABLE_UNITS = {
+    "boreholes": BOREHOLE_UNITS,
+    "production": PRODUCTION_UNITS,
+    "points": TRAJECTORY_UNITS,
+    "azimuth": AZIMUTH_DLS_UNITS,
+    "wellpath_metrics": WELLPATH_METRICS_UNITS,
+    "bhp": BHP_UNITS,
+    "eor_geomarkers": EOR_INTERVAL_UNITS,
+    "eor_perf": EOR_INTERVAL_UNITS,
+    "apd_casing_intervals": CASING_UNITS,
+    "apd_casing_sections": CASING_UNITS,
+    "war_tubular": CASING_UNITS,
+    "war_tubular_prop": CASING_UNITS,
+    "decom_estimates": DECOM_UNITS,
+    "decom_spud_well": DECOM_UNITS,
+    "decom_totals": DECOM_UNITS,
+}
+
+METRIC_ALIASES = {
+    "boreholes": {
+        "total_depth": "BH_TOTAL_MD",
+        "measured_depth": "BH_TOTAL_MD",
+        "tvd": "WELL_BORE_TVD",
+        "water_depth": "WATER_DEPTH",
+    },
+    "production": {
+        "production_oil": "Monthly Oil Volume",
+        "oil_volume": "Monthly Oil Volume",
+        "production_gas": "Monthly Gas Volume",
+        "gas_volume": "Monthly Gas Volume",
+        "production_water": "Monthly Water Volume",
+        "water_volume": "Monthly Water Volume",
+        "days_on_prod": "Days On Prod",
+    },
+    "wellpath_metrics": {
+        "horizontal_departure": "calc_max_horizontal_departure_ft",
+        "max_horizontal_departure": "calc_max_horizontal_departure_ft",
+        "horizontal_distance": "calc_horizontal_distance_ft",
+        "source_horizontal_departure": "source_max_horizontal_departure_ft",
+        "source_horizontal_distance": "source_horizontal_distance_ft",
+        "lateral_length": "calc_lateral_length_over_80deg_ft",
+        "max_dls": "calc_max_dls_deg_per_100ft",
+        "avg_dls": "calc_avg_dls_deg_per_100ft",
+        "trajectory_type": "calc_trajectory_type",
+        "closure_azimuth": "calc_closure_azimuth_deg",
+        "max_inclination": "calc_max_inclination_deg",
+    },
+    "decom_spud_well": {
+        "decom_cost": "WELL_INST_DCOM_P90",
+        "p50_cost": "WELL_INST_DCOM_P50",
+        "p70_cost": "WELL_INST_DCOM_P70",
+        "p90_cost": "WELL_INST_DCOM_P90",
+    },
+    "decom_totals": {
+        "decom_cost": "P90_COST",
+        "p50_cost": "P50_COST",
+        "p70_cost": "P70_COST",
+        "p90_cost": "P90_COST",
+    },
+}
+
 
 def norm_api(value: Any) -> str:
     if value is None or pd.isna(value):
@@ -391,6 +453,105 @@ def read_dataset(data_dir: Path, key: str, columns: list[str] | None = None) -> 
     if not path.exists():
         return pd.DataFrame()
     return duckdb_df(f"SELECT {columns_sql(columns)} FROM {parquet_sql(data_dir, key)}")
+
+
+def dataset_columns(data_dir: Path, key: str) -> list[str]:
+    path = parquet_path(data_dir, key)
+    if not path.exists():
+        return []
+    with duckdb.connect(database=":memory:") as con:
+        description = con.execute(f"SELECT * FROM {parquet_sql(data_dir, key)} LIMIT 0").description
+    return [str(column[0]) for column in description]
+
+
+def resolve_dataset_key(table: str, flag_name: str = "--table") -> str:
+    key = alias_key(table)
+    if key not in DATASETS:
+        raise ValueError(f"Unknown {flag_name} '{table}'. Use one of: {', '.join(sorted(DATASETS))}")
+    return key
+
+
+def resolve_metric_column(key: str, requested: str, columns: list[str]) -> tuple[str, str | None]:
+    if requested in columns:
+        return requested, None
+    requested_alias = alias_key(requested)
+    resolved = METRIC_ALIASES.get(key, {}).get(requested_alias)
+    if resolved and resolved in columns:
+        return resolved, requested_alias
+    if resolved:
+        raise ValueError(f"Alias '{requested}' resolves to '{resolved}', but that column is not in '{key}'")
+    raise ValueError(f"Column or alias '{requested}' is not in '{key}'. Available columns: {', '.join(columns)}")
+
+
+def available_metric_aliases(key: str, columns: list[str]) -> dict[str, str]:
+    return {alias: column for alias, column in METRIC_ALIASES.get(key, {}).items() if column in columns}
+
+
+def describe_table(data_dir: Path, table: str, limit: int) -> dict[str, Any]:
+    key = resolve_dataset_key(table)
+    if not parquet_path(data_dir, key).exists():
+        raise ValueError(f"Dataset '{key}' is missing: {parquet_path(data_dir, key)}")
+
+    columns = dataset_columns(data_dir, key)
+    units = units_for(columns, TABLE_UNITS.get(key, {}))
+    aliases = available_metric_aliases(key, columns)
+    alias_by_column: dict[str, list[str]] = {}
+    for alias, column in aliases.items():
+        alias_by_column.setdefault(column, []).append(alias)
+
+    sample_limit = max(limit, 0)
+    sample = duckdb_df(f"SELECT * FROM {parquet_sql(data_dir, key)} LIMIT {sample_limit}")
+    total_records = duckdb_df(f"SELECT COUNT(*) AS count FROM {parquet_sql(data_dir, key)}")
+    return {
+        "kind": "table_description",
+        "data_dir": str(data_dir),
+        "table": key,
+        "source": DATASETS[key],
+        "total_records": int(total_records.iloc[0]["count"]) if not total_records.empty else 0,
+        "columns": [
+            {
+                "name": column,
+                "unit": units.get(column),
+                "aliases": sorted(alias_by_column.get(column, [])),
+            }
+            for column in columns
+        ],
+        "units": units,
+        "metric_aliases": aliases,
+        "records_sampled": int(len(sample)),
+        "sample": top_rows(sample, None, sample_limit),
+    }
+
+
+def build_ranked_dataset(data_dir: Path, table: str, rank_by: str, limit: int, descending: bool = True) -> dict[str, Any]:
+    key = resolve_dataset_key(table, "--rank-table")
+    if not parquet_path(data_dir, key).exists():
+        raise ValueError(f"Dataset '{key}' is missing: {parquet_path(data_dir, key)}")
+
+    columns = dataset_columns(data_dir, key)
+    resolved_rank_by, requested_alias = resolve_metric_column(key, rank_by, columns)
+
+    direction = "DESC" if descending else "ASC"
+    null_direction = "NULLS LAST"
+    sql = f"""
+        SELECT *
+        FROM {parquet_sql(data_dir, key)}
+        ORDER BY TRY_CAST("{resolved_rank_by}" AS DOUBLE) {direction} {null_direction}, "{resolved_rank_by}" {direction} {null_direction}
+        LIMIT ?
+    """
+    rows = duckdb_df(sql, [max(limit, 0)])
+    return {
+        "kind": "ranked_dataset",
+        "data_dir": str(data_dir),
+        "table": key,
+        "source": DATASETS[key],
+        "requested_rank_by": rank_by,
+        "rank_alias": requested_alias,
+        "rank_by": resolved_rank_by,
+        "direction": "desc" if descending else "asc",
+        "records": int(len(rows)),
+        "sample": top_rows(rows, None, len(rows)),
+    }
 
 
 def filter_api(df: pd.DataFrame, column: str, api: str) -> pd.DataFrame:
@@ -497,7 +658,7 @@ def version_metrics(df: pd.DataFrame, version_col: str, date_col: str, depth_col
     return out
 
 
-def dls_analysis(azimuth: pd.DataFrame, min_step: float) -> dict[str, Any]:
+def dls_analysis(azimuth: pd.DataFrame, min_step: float, limit: int) -> dict[str, Any]:
     if azimuth.empty or not {"MD", "Deviation Angle", "Azimuth"}.issubset(azimuth.columns):
         return {"records": int(len(azimuth)), "available": False, "units": AZIMUTH_DLS_UNITS}
 
@@ -560,7 +721,7 @@ def dls_analysis(azimuth: pd.DataFrame, min_step: float) -> dict[str, Any]:
         "calculated_horizontal_distance_ft": horizontal,
         "calculated_final_tvd_ft": final_tvd,
         "calculated_horizontal_tvd_ratio": horizontal / final_tvd if horizontal is not None and final_tvd else None,
-        "sample": top_rows(used, ["MD", "Deviation Angle", "Azimuth", "DLS", "Calc_TVD_ft", "Calc_Easting_offset_ft", "Calc_Northing_offset_ft"], 10),
+        "sample": top_rows(used, ["MD", "Deviation Angle", "Azimuth", "DLS", "Calc_TVD_ft", "Calc_Easting_offset_ft", "Calc_Northing_offset_ft"], limit),
     }
 
 
@@ -768,7 +929,7 @@ def build_dossier(
             "units": WELLPATH_METRICS_UNITS,
             "sample": top_rows(wellpath_metrics, None, 1),
         },
-        "azimuth_dls": dls_analysis(azimuth, min_step),
+        "azimuth_dls": dls_analysis(azimuth, min_step, limit),
         "geological_markers": {
             "records": int(len(geomarkers)),
             "units": EOR_INTERVAL_UNITS,
@@ -2001,6 +2162,39 @@ def print_data_dir_check(validation: dict[str, Any]) -> None:
     print(f"- Missing required: {', '.join(validation['missing_required']) if validation['missing_required'] else 'None'}")
 
 
+def print_table_description(result: dict[str, Any]) -> None:
+    print(f"# Table Description: {result['table']}")
+    print(f"\n- Source: {result['source']}")
+    print(f"- Total records: {result['total_records']}")
+    if result.get("metric_aliases"):
+        print(f"- Metric aliases: {json.dumps(result['metric_aliases'], ensure_ascii=False)}")
+    print("\n## Columns")
+    for column in result["columns"]:
+        unit = f", unit={column['unit']}" if column.get("unit") else ""
+        aliases = f", aliases={column['aliases']}" if column.get("aliases") else ""
+        print(f"- {column['name']}{unit}{aliases}")
+    if result.get("sample"):
+        print("\n## Sample")
+        for row in result["sample"]:
+            print(f"- {json.dumps(to_jsonable(row), ensure_ascii=False, default=str)}")
+
+
+def print_ranked_dataset(result: dict[str, Any]) -> None:
+    print("# Ranked Dataset")
+    print(f"\n- Table: {result['table']}")
+    print(f"- Source: {result['source']}")
+    if result.get("rank_alias"):
+        print(f"- Requested rank by: {result['requested_rank_by']}")
+    print(f"- Rank by: {result['rank_by']}")
+    print(f"- Direction: {result['direction']}")
+    print(f"- Records returned: {result['records']}")
+    print("\n## Rows")
+    if not result["sample"]:
+        print("- No rows found.")
+    for row in result["sample"]:
+        print(f"- {json.dumps(to_jsonable(row), ensure_ascii=False, default=str)}")
+
+
 def print_dossier(dossier: dict[str, Any]) -> None:
     print(f"# Well Research Dossier: {dossier['api_query']}")
     print(f"\nData dir: `{dossier['data_dir']}`")
@@ -2053,7 +2247,16 @@ def emit_result(
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text(text, encoding="utf-8")
     else:
-        print(text, end="")
+        write_stdout(text)
+
+
+def write_stdout(text: str) -> None:
+    try:
+        sys.stdout.write(text)
+    except UnicodeEncodeError:
+        encoding = sys.stdout.encoding or "utf-8"
+        safe_text = text.encode(encoding, errors="backslashreplace").decode(encoding)
+        sys.stdout.write(safe_text)
 
 
 def main() -> int:
@@ -2085,6 +2288,10 @@ def main() -> int:
     parser.add_argument("--casing-compare", action="store_true", help="Add APD planned vs WAR actual casing comparison.")
     parser.add_argument("--timeline", action="store_true", help="Add chronological timeline across available well evidence.")
     parser.add_argument("--audit", action="store_true", help="Audit data completeness for wells matching --field.")
+    parser.add_argument("--describe-table", help="Describe a known dataset key, columns, metric aliases, units, and sample rows.")
+    parser.add_argument("--rank-table", help="Rank a known dataset key, e.g. wellpath_metrics.")
+    parser.add_argument("--rank-by", help="Column name or metric alias to rank by.")
+    parser.add_argument("--rank-direction", choices=["desc", "asc"], default="desc", help="Ranking direction. Defaults to desc.")
     parser.add_argument("--min-step", type=float, default=100.0, help="Minimum MD spacing in feet for DLS analysis.")
     parser.add_argument("--limit", type=int, default=8, help="Sample row limit.")
     parser.add_argument("--full", action="store_true", help="Return more sample rows.")
@@ -2104,6 +2311,30 @@ def main() -> int:
         validation = check_data_dir(data_dir)
         emit_result(validation, args.format, args.output, print_data_dir_check)
         return 0 if validation["ok"] else 2
+
+    if args.describe_table:
+        try:
+            result = describe_table(data_dir, args.describe_table, limit)
+        except ValueError as exc:
+            parser.error(str(exc))
+        emit_result(result, args.format, args.output, print_table_description)
+        return 0
+
+    if args.rank_table or args.rank_by:
+        if not args.rank_table or not args.rank_by:
+            parser.error("--rank-table and --rank-by must be used together")
+        try:
+            result = build_ranked_dataset(
+                data_dir,
+                args.rank_table,
+                args.rank_by,
+                limit,
+                descending=args.rank_direction == "desc",
+            )
+        except ValueError as exc:
+            parser.error(str(exc))
+        emit_result(result, args.format, args.output, print_ranked_dataset)
+        return 0
 
     if args.casing_sizes:
         try:
@@ -2156,7 +2387,7 @@ def main() -> int:
         return 0
 
     if not args.api:
-        parser.error("--api, --keyword, --incident, --field, --casing-sizes, or --decom is required")
+        parser.error("--api, --keyword, --incident, --field, --casing-sizes, --describe-table, --rank-table, or --decom is required")
 
     dossier = build_dossier(
         data_dir,

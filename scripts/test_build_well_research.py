@@ -1,7 +1,10 @@
 import importlib.util
+import io
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import pandas as pd
 
@@ -17,6 +20,68 @@ def write_fixture(data_dir: Path, filename: str, rows: list[dict]) -> None:
 
 
 class DecomResearchTests(unittest.TestCase):
+    def test_emit_result_does_not_crash_on_non_gbk_stdout(self):
+        result = {"text": "¿"}
+        stdout = io.TextIOWrapper(io.BytesIO(), encoding="gbk", errors="strict")
+
+        with patch.object(sys, "stdout", stdout):
+            mod.emit_result(result, "json", None, mod.print_dossier)
+
+    def test_ranked_dataset_accepts_metric_alias(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data_dir = Path(tmp)
+            write_fixture(
+                data_dir,
+                "df_wellpath_metrics.parquet",
+                [
+                    {"API Number": "111", "calc_max_horizontal_departure_ft": 300.0},
+                    {"API Number": "222", "calc_max_horizontal_departure_ft": 900.0},
+                ],
+            )
+
+            result = mod.build_ranked_dataset(
+                data_dir=data_dir,
+                table="wellpath_metrics",
+                rank_by="horizontal_departure",
+                limit=1,
+            )
+
+        self.assertEqual(result["requested_rank_by"], "horizontal_departure")
+        self.assertEqual(result["rank_by"], "calc_max_horizontal_departure_ft")
+        self.assertEqual(result["sample"][0]["API Number"], "222")
+
+    def test_describe_table_reports_columns_units_aliases_and_sample(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data_dir = Path(tmp)
+            write_fixture(
+                data_dir,
+                "df_wellpath_metrics.parquet",
+                [
+                    {
+                        "API Number": "111",
+                        "calc_max_horizontal_departure_ft": 300.0,
+                        "calc_trajectory_type": "horizontal",
+                    },
+                    {
+                        "API Number": "222",
+                        "calc_max_horizontal_departure_ft": 900.0,
+                        "calc_trajectory_type": "horizontal",
+                    },
+                ],
+            )
+
+            result = mod.describe_table(data_dir, "wellpath_metrics", limit=1)
+
+        column_names = [column["name"] for column in result["columns"]]
+        self.assertEqual(result["kind"], "table_description")
+        self.assertEqual(result["table"], "wellpath_metrics")
+        self.assertEqual(result["source"], "df_wellpath_metrics.parquet")
+        self.assertEqual(result["records_sampled"], 1)
+        self.assertIn("calc_max_horizontal_departure_ft", column_names)
+        self.assertEqual(result["units"]["calc_max_horizontal_departure_ft"], "ft")
+        self.assertEqual(result["metric_aliases"]["horizontal_departure"], "calc_max_horizontal_departure_ft")
+        self.assertEqual(result["sample"][0]["API Number"], "111")
+
     def test_filters_decom_data_by_lease_api_and_min_cost(self):
         with tempfile.TemporaryDirectory() as tmp:
             data_dir = Path(tmp)

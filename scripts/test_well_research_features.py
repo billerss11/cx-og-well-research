@@ -8,6 +8,8 @@ import json
 import tempfile
 from pathlib import Path
 
+import pytest
+
 
 SCRIPT = Path(__file__).with_name("build_well_research.py")
 REPO = Path(r"J:\cx_coding_project_unsyc\python\CX_O-G_APP")
@@ -21,6 +23,11 @@ def load_module():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+@pytest.fixture(scope="module")
+def module():
+    return load_module()
 
 
 def test_incident_search_returns_expanded_terms(module):

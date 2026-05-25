@@ -1,28 +1,32 @@
 ---
 name: cx-og-well-research
-description: Use when the user wants to find, research, summarize, audit, or explain Gulf of Mexico wells from local ready-to-use Parquet datasets, including keyword discovery, single-well dossiers, field audits, WAR, APD/APM attachments, FRS files, trajectory, DLS, EOR, geomarkers, BHP, perforations, casing, production, and open-hole logging data.
+description: Use when the user asks to find, rank, research, summarize, audit, or explain Gulf of Mexico wells from local CX O&G Parquet data, including API well dossiers, keyword discovery, field audits, WAR/APD/APM/FRS evidence, trajectory, DLS, EOR, BHP, perforations, casing, production, logging, or decommissioning.
 ---
 
 # CX O&G Well Research
 
-Use this skill as the broad research workflow for local Gulf of Mexico well Parquet data.
+Use the bundled CLI as the evidence source. Do not invent missing records.
 
-Runtime needs the ready Parquet folder, not the full app source. Repo discovery is only a convenience when running from the CX O&G APP root.
+Runtime needs the ready Parquet data folder. Repo discovery is only a convenience when running from the CX O&G APP root.
 
-## Quick Workflow
+## Core Command
 
-1. If the user gives a keyword or vague topic, run discovery mode first.
-2. If the user gives an API number, run dossier mode.
-3. If discovery returns many wells, ask the user which API to inspect before producing a full dossier.
-4. Use script output as evidence. Do not invent missing records.
-
-## Script Usage
-
-Use the shared conda env when the default Python does not have DuckDB:
+Use the shared env if default Python lacks DuckDB:
 
 ```powershell
 conda run -n codex_env python C:\Users\17999\.codex\skills\cx-og-well-research\scripts\build_well_research.py --check-data-dir --data-dir J:\cx_coding_project_unsyc\python\CX_O-G_APP\data
 ```
+
+## Decision Workflow
+
+1. Vague topic or incident: run discovery first with `--keyword` or `--incident`.
+2. Known API number: run dossier mode with `--api`.
+3. Field/operator/name question: use `--field`; add `--audit` for data-completeness ranking.
+4. Ranked question: use `--describe-table` if column names are unclear, then `--rank-table` and `--rank-by`.
+5. Many wells returned: ask which API to inspect before building a full dossier.
+6. Plots, reports, or renderers: export JSON with `--format json --output ...`.
+
+## Common Commands
 
 Full dossier:
 
@@ -33,174 +37,81 @@ conda run -n codex_env python C:\Users\17999\.codex\skills\cx-og-well-research\s
 Keyword discovery:
 
 ```powershell
-conda run -n codex_env python C:\Users\17999\.codex\skills\cx-og-well-research\scripts\build_well_research.py --keyword "stuck pipe" --data-dir J:\cx_coding_project_unsyc\python\CX_O-G_APP\data
+conda run -n codex_env python C:\Users\17999\.codex\skills\cx-og-well-research\scripts\build_well_research.py --keyword "stuck pipe" --filter MADISON --data-dir J:\cx_coding_project_unsyc\python\CX_O-G_APP\data
 ```
 
-Keyword discovery filtered to a field/operator/name:
+Describe available columns, aliases, units, and sample rows:
 
 ```powershell
-conda run -n codex_env python C:\Users\17999\.codex\skills\cx-og-well-research\scripts\build_well_research.py --keyword casing --filter MADISON --data-dir J:\cx_coding_project_unsyc\python\CX_O-G_APP\data
+conda run -n codex_env python C:\Users\17999\.codex\skills\cx-og-well-research\scripts\build_well_research.py --describe-table wellpath_metrics --data-dir J:\cx_coding_project_unsyc\python\CX_O-G_APP\data
 ```
 
-Incident preset search:
+Rank a table by a real column or metric alias:
 
 ```powershell
-conda run -n codex_env python C:\Users\17999\.codex\skills\cx-og-well-research\scripts\build_well_research.py --incident stuck-pipe --data-dir J:\cx_coding_project_unsyc\python\CX_O-G_APP\data
+conda run -n codex_env python C:\Users\17999\.codex\skills\cx-og-well-research\scripts\build_well_research.py --rank-table wellpath_metrics --rank-by horizontal_departure --limit 10 --data-dir J:\cx_coding_project_unsyc\python\CX_O-G_APP\data
 ```
 
-Full dossier with optional analysis sections:
-
-```powershell
-conda run -n codex_env python C:\Users\17999\.codex\skills\cx-og-well-research\scripts\build_well_research.py --api 608054000500 --include-production --casing-compare --timeline --data-dir J:\cx_coding_project_unsyc\python\CX_O-G_APP\data
-```
-
-Field data-completeness audit:
-
-```powershell
-conda run -n codex_env python C:\Users\17999\.codex\skills\cx-og-well-research\scripts\build_well_research.py --field MADISON --audit --data-dir J:\cx_coding_project_unsyc\python\CX_O-G_APP\data
-```
-
-Global casing search:
-
-```powershell
-conda run -n codex_env python C:\Users\17999\.codex\skills\cx-og-well-research\scripts\build_well_research.py --casing-sizes "13.375,9.625" --data-dir J:\cx_coding_project_unsyc\python\CX_O-G_APP\data
-```
-
-Global casing search filtered to WAR records and a field/operator/name:
-
-```powershell
-conda run -n codex_env python C:\Users\17999\.codex\skills\cx-og-well-research\scripts\build_well_research.py --casing-sizes "13.375,9.625" --casing-source war --filter MADISON --data-dir J:\cx_coding_project_unsyc\python\CX_O-G_APP\data
-```
-
-Decommissioning by lease:
-
-```powershell
-conda run -n codex_env python C:\Users\17999\.codex\skills\cx-og-well-research\scripts\build_well_research.py --decom-lease G34454 --data-dir J:\cx_coding_project_unsyc\python\CX_O-G_APP\data
-```
-
-Decommissioning by API well:
-
-```powershell
-conda run -n codex_env python C:\Users\17999\.codex\skills\cx-og-well-research\scripts\build_well_research.py --decom-api 177174027700 --data-dir J:\cx_coding_project_unsyc\python\CX_O-G_APP\data
-```
-
-Decommissioning ranking/filter:
-
-```powershell
-conda run -n codex_env python C:\Users\17999\.codex\skills\cx-og-well-research\scripts\build_well_research.py --decom --decom-area GC --decom-block 100 --decom-min-cost 1000000 --decom-cost-case p90 --data-dir J:\cx_coding_project_unsyc\python\CX_O-G_APP\data
-```
-
-JSON:
-
-```powershell
-conda run -n codex_env python C:\Users\17999\.codex\skills\cx-og-well-research\scripts\build_well_research.py --api 608054000500 --format json --data-dir J:\cx_coding_project_unsyc\python\CX_O-G_APP\data
-```
-
-Save output for another renderer:
-
-```powershell
-conda run -n codex_env python C:\Users\17999\.codex\skills\cx-og-well-research\scripts\build_well_research.py --api 608054000500 --include-production --casing-compare --timeline --format json --output well_608054000500.json --data-dir J:\cx_coding_project_unsyc\python\CX_O-G_APP\data
-```
-
-Full trajectory JSON for 2D/3D renderers:
+Full JSON for handoff:
 
 ```powershell
 conda run -n codex_env python C:\Users\17999\.codex\skills\cx-og-well-research\scripts\build_well_research.py --api 608054000500 --full --format json --output well_608054000500_full.json --data-dir J:\cx_coding_project_unsyc\python\CX_O-G_APP\data
 ```
 
-Plot-ready production JSON:
+## Metric Aliases
 
-```powershell
-conda run -n codex_env python C:\Users\17999\.codex\skills\cx-og-well-research\scripts\build_well_research.py --api 608054000500 --production-group-by "Production Interval Code" --format json --output production_608054000500.json --data-dir J:\cx_coding_project_unsyc\python\CX_O-G_APP\data
-```
+Use aliases when the user speaks in plain English. Run `--describe-table <table>` to see aliases supported by that table.
 
-Completion reconciliation:
+Important aliases:
 
-```powershell
-conda run -n codex_env python C:\Users\17999\.codex\skills\cx-og-well-research\scripts\build_well_research.py --api 427064030600 --completion-reconcile --format json --data-dir J:\cx_coding_project_unsyc\python\CX_O-G_APP\data
-```
+- `wellpath_metrics`: `horizontal_departure`, `horizontal_distance`, `source_horizontal_departure`, `lateral_length`, `max_dls`, `avg_dls`, `trajectory_type`, `closure_azimuth`, `max_inclination`.
+- `boreholes`: `total_depth`, `measured_depth`, `tvd`, `water_depth`.
+- `production`: `production_oil`, `oil_volume`, `production_gas`, `gas_volume`, `production_water`, `water_volume`, `days_on_prod`.
+- `decom_spud_well` / `decom_totals`: `decom_cost`, `p50_cost`, `p70_cost`, `p90_cost`.
 
-More rows:
+## Workflow Recipes
 
-```powershell
-conda run -n codex_env python C:\Users\17999\.codex\skills\cx-og-well-research\scripts\build_well_research.py --api 608054000500 --full --data-dir J:\cx_coding_project_unsyc\python\CX_O-G_APP\data
-```
+Furthest horizontal well:
 
-## HTML Handoff
+1. Rank `wellpath_metrics` by `horizontal_departure` descending.
+2. Take the top `API Number`.
+3. Run dossier mode for that API.
+4. State metric, value, API, trajectory type, station counts, and metric status.
 
-Do not render HTML inside this skill unless the user explicitly asks. Prefer this workflow:
+Deepest well:
 
-1. Use this skill to generate evidence as JSON with `--format json --output ...`.
-2. For trajectory plots/viewers, add `--full`; default JSON contains preview/sample rows, not necessarily every station.
-3. Pass that JSON file to a separate HTML/report/front-end skill or app.
-4. The renderer should preserve source fields, units, dates, data availability counts, and absent-record notes.
+1. Rank `boreholes` by `total_depth` descending.
+2. Take `API_WELL_NUMBER`.
+3. Run dossier mode.
 
-Markdown output can also be saved with `--format markdown --output ...` when the renderer is Markdown-first.
+Highest DLS:
 
-## Dossier Sections
+1. Rank `wellpath_metrics` by `max_dls` descending.
+2. Inspect `metric_status`, station counts, and spacing before making a strong claim.
+3. Run dossier mode for the top API.
 
-For known API output, include these sections:
+Field audit:
 
-- Borehole details
-- EOR main report
-- Raw wellpath survey data
-- Azimuth/deviation data
-- DLS metrics and MD spacing issues
-- Derived per-well wellpath metrics from `df_wellpath_metrics.parquet`
-- Standard wellpath metrics
-- Calculated path metrics
-- Geological markers
-- BHP survey records
-- Perforation intervals
-- APD casing by submission version
-- WAR casing by report version
-- Open-hole logging runs/tools
+1. Run `--field <name> --audit`.
+2. Report data score and availability counts.
+3. Ask for an API before creating a full dossier if many wells match.
 
-## Trajectory Coordinate Rules
+APD planned vs WAR actual casing:
 
-Current CX O&G APP trajectory parquet files keep backward-compatible map-coordinate aliases:
+1. Run dossier mode with `--casing-compare`.
+2. Keep planned APD casing separate from actual WAR casing/tubular evidence.
 
-- `df_points.easting` / `df_points.northing` are legacy Web Mercator aliases.
-- Prefer `webmerc_easting_ft` / `webmerc_northing_ft` when showing map coordinates.
-- Do not calculate wellpath horizontal displacement from Web Mercator deltas.
-- For source wellpath displacement, use local offsets from `Latitude` / `Longitude`.
-- For calculated path displacement and DLS, use `MD`, `Deviation Angle`, `Azimuth` and minimum-curvature offsets.
-- For 3D viewers, build local east/north offsets from `Latitude` / `Longitude`; use TVD/depth as the vertical axis and label any vertical scale/exaggeration clearly.
-- If the first survey station MD is above 0, surface-to-first-survey is only a visual guide unless source data provides that segment.
-- Prefer `df_wellpath_metrics.parquet` for query/export/ranking of per-well horizontal distance, TVD delta, closure azimuth, max departure, inclination, lateral length, DLS summary, trajectory type, and metric quality/status.
-- `df_azimuth.parquet` now preserves `TVD`, `Latitude`, `Longitude`, `Neg TVD`, `webmerc_easting_ft`, and `webmerc_northing_ft` for auditability.
+Production vs EOR completion reconciliation:
 
-`df_wellpath_metrics.parquet` is one row per API. Its source metrics are based on source survey lon/lat endpoints and TVD delta; its calculated metrics are based on full real MD/inc/azimuth stations via minimum curvature. It does not use plot-only artificial MD=0 rows.
+1. Run dossier mode with `--completion-reconcile`.
+2. Do not treat production `Completion Name` and EOR completion identifiers as identical.
 
-Trajectory type uses documented thresholds: `horizontal` when max inclination is at least 80 degrees from vertical; `vertical` when MD-weighted average inclination is at most 3 degrees; `directional` is the remaining non-horizontal, non-vertical class.
+## References
 
-Also include discovery evidence:
+Load only when needed:
 
-- WAR keyword hits if a keyword was supplied
-- APD/APM attachment records
-- FRS file records
+- `references/trajectory.md`: trajectory, DLS, map coordinate, and wellpath metric rules.
+- `references/casing.md`: casing search and APD/WAR comparison rules.
+- `references/decommissioning.md`: decommissioning cost/inventory workflows.
+- `references/output-rules.md`: dossier sections, answer format, JSON/HTML handoff rules.
 
-Optional analysis sections:
-
-- `--include-production`: production date range, totals, peak months, status codes, completion count.
-- `--production-group-by ...`: plot-ready monthly production time series grouped by `Completion Name`, `Product Code`, or `Production Interval Code`.
-- `--completion-reconcile`: side-by-side production completion identifiers vs EOR physical/reservoir completion records.
-- `--casing-compare`: latest APD planned casing vs latest WAR actual casing/tubular evidence.
-- `--timeline`: chronological events from borehole, APD, WAR, casing, logging, BHP, EOR, perforations, and production.
-- `--incident`: preset keyword bundles such as `stuck-pipe`, `lost-circulation`, `kick`, `fishing`, `cementing`, and `logging`.
-- `--field ... --audit`: rank matching wells by data availability across WAR, production, trajectory, APD, BHP, EOR, attachments, and FRS.
-- `--casing-sizes ...`: global search for wells with matching APD/WAR casing sizes. Use `--casing-source any|apd|war`, `--casing-match all|any`, `--casing-tolerance`, `--casing-latest-only`, and `--filter`.
-- `--decom`, `--decom-lease`, `--decom-api`, `--decom-area`, `--decom-block`: search decommissioning cost and inventory tables.
-- `--decom-min-cost ... --decom-cost-case p50|p70|p90|dtr`: filter/rank decommissioning rows by estimate case.
-- `--decom-pa-adjustment Y|N`: filter lease estimate rows by PA adjustment flag.
-
-## Answer Rules
-
-- Start with an executive summary and data availability counts.
-- Then provide section-by-section evidence.
-- Keep planned APD casing separate from actual WAR casing/tubular records.
-- State when records are absent.
-- Do not treat production `Completion Name` and EOR `SN_EOR_WELL_COMP`/`INTERVAL` as identical; use `--completion-reconcile` when users ask how they relate.
-- For large tables, summarize by default and offer `--full`/JSON for more rows.
-- For plotting, use `--format json --output ...`; the production time series uses neutral fields like `period_start`, `group`, `oil_volume`, `gas_volume`, `water_volume`, `days_on_prod`, and derived daily rates.
-- Dates and depths should keep source units from the data; trajectory/casing depths are feet.
