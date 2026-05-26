@@ -50,6 +50,56 @@ class DecomResearchTests(unittest.TestCase):
         self.assertEqual(result["rank_by"], "calc_max_horizontal_departure_ft")
         self.assertEqual(result["sample"][0]["API Number"], "222")
 
+    def test_ranked_production_dataset_reports_rank_unit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data_dir = Path(tmp)
+            write_fixture(
+                data_dir,
+                "df_gom_production.parquet",
+                [
+                    {"Api Well Number": "111", "Monthly Oil Volume": 100.0},
+                    {"Api Well Number": "222", "Monthly Oil Volume": 300.0},
+                ],
+            )
+
+            result = mod.build_ranked_dataset(
+                data_dir=data_dir,
+                table="production",
+                rank_by="production_oil",
+                limit=1,
+            )
+
+        self.assertEqual(result["rank_by"], "Monthly Oil Volume")
+        self.assertEqual(result["rank_unit"], "bbl")
+
+    def test_describe_production_reports_daily_average_units(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data_dir = Path(tmp)
+            write_fixture(
+                data_dir,
+                "df_gom_production.parquet",
+                [
+                    {
+                        "Api Well Number": "111",
+                        "Day_Aver_Oil": 10.0,
+                        "Day_Aver_Water": 2.0,
+                        "Day_Aver_Gas": 100.0,
+                        "Day_Aver_Oil_bbl_per_day": 10.0,
+                        "Day_Aver_Water_bbl_per_day": 2.0,
+                        "Day_Aver_Gas_mcf_per_day": 100.0,
+                    },
+                ],
+            )
+
+            result = mod.describe_table(data_dir, "production", limit=1)
+
+        self.assertEqual(result["units"]["Day_Aver_Oil"], "bbl/day")
+        self.assertEqual(result["units"]["Day_Aver_Water"], "bbl/day")
+        self.assertEqual(result["units"]["Day_Aver_Gas"], "mcf/day")
+        self.assertEqual(result["units"]["Day_Aver_Oil_bbl_per_day"], "bbl/day")
+        self.assertEqual(result["units"]["Day_Aver_Water_bbl_per_day"], "bbl/day")
+        self.assertEqual(result["units"]["Day_Aver_Gas_mcf_per_day"], "mcf/day")
+
     def test_describe_table_reports_columns_units_aliases_and_sample(self):
         with tempfile.TemporaryDirectory() as tmp:
             data_dir = Path(tmp)

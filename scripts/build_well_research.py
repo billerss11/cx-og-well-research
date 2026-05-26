@@ -110,6 +110,12 @@ PRODUCTION_UNITS = {
     "oil_rate": "bbl/day",
     "gas_rate": "mcf/day",
     "water_rate": "bbl/day",
+    "Day_Aver_Oil_bbl_per_day": "bbl/day",
+    "Day_Aver_Water_bbl_per_day": "bbl/day",
+    "Day_Aver_Gas_mcf_per_day": "mcf/day",
+    "Day_Aver_Oil": "bbl/day",
+    "Day_Aver_Water": "bbl/day",
+    "Day_Aver_Gas": "mcf/day",
 }
 
 PRODUCTION_TIME_SERIES_METRICS = [
@@ -530,6 +536,7 @@ def build_ranked_dataset(data_dir: Path, table: str, rank_by: str, limit: int, d
 
     columns = dataset_columns(data_dir, key)
     resolved_rank_by, requested_alias = resolve_metric_column(key, rank_by, columns)
+    rank_unit = TABLE_UNITS.get(key, {}).get(resolved_rank_by)
 
     direction = "DESC" if descending else "ASC"
     null_direction = "NULLS LAST"
@@ -548,6 +555,7 @@ def build_ranked_dataset(data_dir: Path, table: str, rank_by: str, limit: int, d
         "requested_rank_by": rank_by,
         "rank_alias": requested_alias,
         "rank_by": resolved_rank_by,
+        "rank_unit": rank_unit,
         "direction": "desc" if descending else "asc",
         "records": int(len(rows)),
         "sample": top_rows(rows, None, len(rows)),
@@ -2186,6 +2194,8 @@ def print_ranked_dataset(result: dict[str, Any]) -> None:
     if result.get("rank_alias"):
         print(f"- Requested rank by: {result['requested_rank_by']}")
     print(f"- Rank by: {result['rank_by']}")
+    if result.get("rank_unit"):
+        print(f"- Rank unit: {result['rank_unit']}")
     print(f"- Direction: {result['direction']}")
     print(f"- Records returned: {result['records']}")
     print("\n## Rows")
