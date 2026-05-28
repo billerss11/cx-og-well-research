@@ -9,7 +9,7 @@ from unittest.mock import patch
 import pandas as pd
 
 
-SCRIPT = Path(__file__).with_name("build_well_research.py")
+SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "build_well_research.py"
 spec = importlib.util.spec_from_file_location("build_well_research", SCRIPT)
 mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mod)
@@ -19,6 +19,75 @@ def write_fixture(data_dir: Path, filename: str, rows: list[dict]) -> None:
     pd.DataFrame(rows).to_parquet(data_dir / filename, index=False)
 
 
+def decom_total_row(auth_number: str, p50: int, p70: int, p90: int) -> dict:
+    return {
+        "AUTH_TYPE_CODE": "LSE",
+        "AUTH_NUMBER": auth_number,
+        "TYPE": "Wells Decom Cost",
+        "CNT": 1,
+        "P50_COST": p50,
+        "P70_COST": p70,
+        "P90_COST": p90,
+        "DTR_COST": 0,
+    }
+
+
+def decom_totals_rows() -> list[dict]:
+    return [decom_total_row("G34454", 100, 150, 200), decom_total_row("G99999", 900, 950, 1000)]
+
+
+def decom_spud_well_row(api: str, name: str, p50: int, p70: int, p90: int, status: str) -> dict:
+    return {
+        "API_WELL_NUMBER": api,
+        "BOTM_LEASE_NUM": "G34454",
+        "SURF_LEASE_NUM": "G34454",
+        "WELL_NAME": name,
+        "WELL_INST_DCOM_P50": p50,
+        "WELL_INST_DCOM_P70": p70,
+        "WELL_INST_DCOM_P90": p90,
+        "WELL_INST_DCOM_INDTR": 0,
+        "BOTM_AREA_CODE": "GC",
+        "BOTM_BLOCK_NUM": "100",
+        "BOREHOLE_STAT_CD": status,
+        "EFFECTIVE_DATE": "2020-01-01",
+    }
+
+
+def decom_spud_well_rows(include_unmatched: bool = True) -> list[dict]:
+    rows = [decom_spud_well_row("123", "A001", 110, 160, 210, "COM")]
+    if include_unmatched:
+        rows.append(decom_spud_well_row("456", "A002", 10, 20, 30, "TA"))
+    return rows
+
+
+def decom_estimate_rows() -> list[dict]:
+    zero_count_fields = [
+        "WELL_PRP_DCOM_COUNT",
+        "PTFRM_INST_DCOM_COUNT",
+        "PTFRM_PRP_SITE_CLRNCE_COUNT",
+        "PTFRM_PRP_DCOM_COUNT",
+        "PTFRM_INST_SITE_CLRNCE_COUNT",
+        "PPL_INST_DCOM_COUNT",
+        "PPL_PRP_DCOM_COUNT",
+    ]
+    row = {field: 0 for field in zero_count_fields}
+    row.update(
+        {
+            "LEASE_NUMBER": "34454",
+            "LEASE_STATUS_CD": "ACTIVE",
+            "BLK_MAX_WTR_DPTH": 5000,
+            "PA_ADJUSTMENT_FL": "Y",
+            "WELL_INST_DCOM_COUNT": 1,
+            "AREA_CODE": "GC",
+            "BLOCK_NUMBER": "100",
+            "UPDATED_DATE": "2020-01-01",
+            "ROW_NUMBER": "",
+            "RUE_NUMBER": "",
+        }
+    )
+    return [row]
+
+
 class DecomResearchTests(unittest.TestCase):
     def test_emit_result_does_not_crash_on_non_gbk_stdout(self):
         result = {"text": "¿"}
@@ -26,6 +95,26 @@ class DecomResearchTests(unittest.TestCase):
 
         with patch.object(sys, "stdout", stdout):
             mod.emit_result(result, "json", None, mod.print_dossier)
+
+    def test_markdown_dossier_output_cleans_war_remarks(self):
+        dossier = {
+            "api_query": "123",
+            "data_dir": "fixture",
+            "identity": {},
+            "availability": {"war_remarks": 1},
+            "sections": {
+                "war_remarks": {
+                    "records": 1,
+                    "sample": [{"TEXT_REMARK": "remark " * 100}],
+                }
+            },
+        }
+        stdout = io.StringIO()
+
+        with patch.object(sys, "stdout", stdout):
+            mod.emit_result(dossier, "markdown", None, mod.print_dossier)
+
+        self.assertIn("remark", stdout.getvalue())
 
     def test_ranked_dataset_accepts_metric_alias(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -138,25 +227,17 @@ class DecomResearchTests(unittest.TestCase):
             write_fixture(
                 data_dir,
                 "df_mv_decom_cost_totals.parquet",
-                [
-                    {"AUTH_TYPE_CODE": "LSE", "AUTH_NUMBER": "G34454", "TYPE": "Wells Decom Cost", "CNT": 1, "P50_COST": 100, "P70_COST": 150, "P90_COST": 200, "DTR_COST": 0},
-                    {"AUTH_TYPE_CODE": "LSE", "AUTH_NUMBER": "G99999", "TYPE": "Wells Decom Cost", "CNT": 1, "P50_COST": 900, "P70_COST": 950, "P90_COST": 1000, "DTR_COST": 0},
-                ],
+                decom_totals_rows(),
             )
             write_fixture(
                 data_dir,
                 "df_mv_decom_cost_spud_well.parquet",
-                [
-                    {"API_WELL_NUMBER": "123", "BOTM_LEASE_NUM": "G34454", "SURF_LEASE_NUM": "G34454", "WELL_NAME": "A001", "WELL_INST_DCOM_P50": 110, "WELL_INST_DCOM_P70": 160, "WELL_INST_DCOM_P90": 210, "WELL_INST_DCOM_INDTR": 0, "BOTM_AREA_CODE": "GC", "BOTM_BLOCK_NUM": "100", "BOREHOLE_STAT_CD": "COM", "EFFECTIVE_DATE": "2020-01-01"},
-                    {"API_WELL_NUMBER": "456", "BOTM_LEASE_NUM": "G34454", "SURF_LEASE_NUM": "G34454", "WELL_NAME": "A002", "WELL_INST_DCOM_P50": 10, "WELL_INST_DCOM_P70": 20, "WELL_INST_DCOM_P90": 30, "WELL_INST_DCOM_INDTR": 0, "BOTM_AREA_CODE": "GC", "BOTM_BLOCK_NUM": "100", "BOREHOLE_STAT_CD": "TA", "EFFECTIVE_DATE": "2020-01-01"},
-                ],
+                decom_spud_well_rows(),
             )
             write_fixture(
                 data_dir,
                 "df_mv_decom_cost_estimates.parquet",
-                [
-                    {"LEASE_NUMBER": "34454", "LEASE_STATUS_CD": "ACTIVE", "BLK_MAX_WTR_DPTH": 5000, "PA_ADJUSTMENT_FL": "Y", "WELL_INST_DCOM_COUNT": 1, "WELL_PRP_DCOM_COUNT": 0, "PTFRM_INST_DCOM_COUNT": 0, "PTFRM_PRP_SITE_CLRNCE_COUNT": 0, "PTFRM_PRP_DCOM_COUNT": 0, "PTFRM_INST_SITE_CLRNCE_COUNT": 0, "PPL_INST_DCOM_COUNT": 0, "PPL_PRP_DCOM_COUNT": 0, "AREA_CODE": "GC", "BLOCK_NUMBER": "100", "UPDATED_DATE": "2020-01-01", "ROW_NUMBER": "", "RUE_NUMBER": ""},
-                ],
+                decom_estimate_rows(),
             )
 
             result = mod.build_decom_research(
@@ -183,17 +264,12 @@ class DecomResearchTests(unittest.TestCase):
             write_fixture(
                 data_dir,
                 "df_mv_decom_cost_totals.parquet",
-                [
-                    {"AUTH_TYPE_CODE": "LSE", "AUTH_NUMBER": "G34454", "TYPE": "Wells Decom Cost", "CNT": 1, "P50_COST": 100, "P70_COST": 150, "P90_COST": 200, "DTR_COST": 0},
-                    {"AUTH_TYPE_CODE": "LSE", "AUTH_NUMBER": "G99999", "TYPE": "Wells Decom Cost", "CNT": 1, "P50_COST": 900, "P70_COST": 950, "P90_COST": 1000, "DTR_COST": 0},
-                ],
+                decom_totals_rows(),
             )
             write_fixture(
                 data_dir,
                 "df_mv_decom_cost_spud_well.parquet",
-                [
-                    {"API_WELL_NUMBER": "123", "BOTM_LEASE_NUM": "G34454", "SURF_LEASE_NUM": "G34454", "WELL_NAME": "A001", "WELL_INST_DCOM_P50": 110, "WELL_INST_DCOM_P70": 160, "WELL_INST_DCOM_P90": 210, "WELL_INST_DCOM_INDTR": 0, "BOTM_AREA_CODE": "GC", "BOTM_BLOCK_NUM": "100", "BOREHOLE_STAT_CD": "COM", "EFFECTIVE_DATE": "2020-01-01"},
-                ],
+                decom_spud_well_rows(include_unmatched=False),
             )
 
             result = mod.build_decom_research(

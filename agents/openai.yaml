@@ -1,6 +1,6 @@
 interface:
-  display_name: "CX O&G Well Research"
-  short_description: "Research and rank Gulf of Mexico wells from CX O&G data."
-  default_prompt: "Use $cx-og-well-research to answer Gulf of Mexico well questions from local Parquet data using discovery, ranking, dossier, casing, production, trajectory, or decommissioning workflows."
+  display_name: "CX Well Research"
+  short_description: "Research Gulf of Mexico wells from CX O&G data."
+  default_prompt: "Use $cx-og-well-research for Gulf of Mexico well evidence from local Parquet data."
 policy:
   allow_implicit_invocation: true

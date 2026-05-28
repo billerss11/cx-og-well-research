@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 
-SCRIPT = Path(__file__).with_name("build_well_research.py")
+SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "build_well_research.py"
 REPO = Path(r"J:\cx_coding_project_unsyc\python\CX_O-G_APP")
 DATA_DIR = REPO / "data"
 
