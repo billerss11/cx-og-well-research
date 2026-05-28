@@ -14,7 +14,9 @@ Runtime needs the ready Parquet data folder. Repo discovery is only a convenienc
 Use the shared env if default Python lacks DuckDB:
 
 ```powershell
-conda run -n codex_env python C:\Users\17999\.codex\skills\cx-og-well-research\scripts\build_well_research.py --check-data-dir --data-dir J:\cx_coding_project_unsyc\python\CX_O-G_APP\data
+$script = "C:\Users\17999\.codex\skills\cx-og-well-research\scripts\build_well_research.py"
+$data = "J:\cx_coding_project_unsyc\python\CX_O-G_APP\data"
+conda run -n codex_env python $script --check-data-dir --data-dir $data
 ```
 
 ## Decision Workflow
@@ -23,40 +25,67 @@ conda run -n codex_env python C:\Users\17999\.codex\skills\cx-og-well-research\s
 2. Known API number: run dossier mode with `--api`.
 3. Field/operator/name question: use `--field`; add `--audit` for data-completeness ranking.
 4. Ranked question: use `--describe-table` if column names are unclear, then `--rank-table` and `--rank-by`.
-5. Many wells returned: ask which API to inspect before building a full dossier.
-6. Plots, reports, or renderers: export JSON with `--format json --output ...`.
+5. Casing-size question: use `--casing-sizes`, then narrow with `--casing-source`, `--casing-match`, or `--casing-latest-only`.
+6. Production, charts, or timelines: add `--include-production`, `--production-group-by`, or `--timeline`; export JSON with `--format json --output ...`.
+7. Many wells returned: ask which API to inspect before building a full dossier.
 
 ## Common Commands
 
 Full dossier:
 
 ```powershell
-conda run -n codex_env python C:\Users\17999\.codex\skills\cx-og-well-research\scripts\build_well_research.py --api 608054000500 --data-dir J:\cx_coding_project_unsyc\python\CX_O-G_APP\data
+conda run -n codex_env python $script --api 608054000500 --data-dir $data
 ```
 
 Keyword discovery:
 
 ```powershell
-conda run -n codex_env python C:\Users\17999\.codex\skills\cx-og-well-research\scripts\build_well_research.py --keyword "stuck pipe" --filter MADISON --data-dir J:\cx_coding_project_unsyc\python\CX_O-G_APP\data
+conda run -n codex_env python $script --keyword "stuck pipe" --filter MADISON --data-dir $data
+```
+
+Incident preset discovery:
+
+```powershell
+conda run -n codex_env python $script --incident stuck-pipe --filter MADISON --data-dir $data
 ```
 
 Describe available columns, aliases, units, and sample rows:
 
 ```powershell
-conda run -n codex_env python C:\Users\17999\.codex\skills\cx-og-well-research\scripts\build_well_research.py --describe-table wellpath_metrics --data-dir J:\cx_coding_project_unsyc\python\CX_O-G_APP\data
+conda run -n codex_env python $script --describe-table wellpath_metrics --data-dir $data
 ```
 
 Rank a table by a real column or metric alias:
 
 ```powershell
-conda run -n codex_env python C:\Users\17999\.codex\skills\cx-og-well-research\scripts\build_well_research.py --rank-table wellpath_metrics --rank-by horizontal_departure --limit 10 --data-dir J:\cx_coding_project_unsyc\python\CX_O-G_APP\data
+conda run -n codex_env python $script --rank-table wellpath_metrics --rank-by horizontal_departure --limit 10 --data-dir $data
+```
+
+Global casing search:
+
+```powershell
+conda run -n codex_env python $script --casing-sizes "13.375,9.625" --casing-source any --casing-match all --data-dir $data
 ```
 
 Full JSON for handoff:
 
 ```powershell
-conda run -n codex_env python C:\Users\17999\.codex\skills\cx-og-well-research\scripts\build_well_research.py --api 608054000500 --full --format json --output well_608054000500_full.json --data-dir J:\cx_coding_project_unsyc\python\CX_O-G_APP\data
+conda run -n codex_env python $script --api 608054000500 --full --format json --output well_608054000500_full.json --data-dir $data
 ```
+
+Production time series for plotting:
+
+```powershell
+conda run -n codex_env python $script --api 608054000500 --include-production --production-group-by interval --format json --output well_608054000500_production.json --data-dir $data
+```
+
+Useful optional flags:
+
+- `--rank-direction asc`: smallest or earliest ranked values.
+- `--timeline`: chronological well evidence in a dossier.
+- `--min-step <ft>`: minimum measured-depth spacing for DLS analysis.
+- `--decom-cost-case p50|p70|p90|dtr`: decommissioning percentile/case for cost filtering and ranking.
+- `--decom-min-cost <amount>`, `--decom-area <area>`, `--decom-block <block>`, `--decom-pa-adjustment Y|N`: decommissioning filters.
 
 ## Metric Aliases
 
@@ -106,6 +135,13 @@ Production vs EOR completion reconciliation:
 1. Run dossier mode with `--completion-reconcile`.
 2. Do not treat production `Completion Name` and EOR completion identifiers as identical.
 
+Decommissioning cost ranking:
+
+1. Rank individual well rows with `--rank-table decom_spud_well --rank-by decom_cost`.
+2. Use `decom_totals` only for lease/category totals, not single-well ranking.
+3. For the top API, run both `--decom-api <api>` and, when available, `--decom-lease <lease>`.
+4. If an API well cost equals the lease `Wells Decom Cost`, state that it may be a lease/package estimate attached to the API, not a clean standalone abandonment cost.
+
 ## References
 
 Load only when needed:
@@ -114,4 +150,3 @@ Load only when needed:
 - `references/casing.md`: casing search and APD/WAR comparison rules.
 - `references/decommissioning.md`: decommissioning cost/inventory workflows.
 - `references/output-rules.md`: dossier sections, answer format, JSON/HTML handoff rules.
-
