@@ -15,6 +15,7 @@ from well_research_core import *
 from well_research_casing import build_apd_casing, build_casing_comparison, build_war_casing
 from well_research_eor import build_geomarkers, build_perforations
 from well_research_evidence import build_logging, build_timeline, build_war_text
+from well_research_lease import build_lease_information
 from well_research_production import build_completion_reconciliation, build_production_summary
 from well_research_trajectory import dls_analysis, standard_wellpath_metrics
 
@@ -57,6 +58,7 @@ def build_dossier(
     apd_casing = build_apd_casing(data_dir, apd)
     war_casing = build_war_casing(data_dir, war_main)
     logging = build_logging(data_dir, war_main)
+    lease_information = build_lease_information(data_dir, api, limit)
 
     attachments = query_api_dataset(data_dir, "attachments", "API_WELL_NUMBER", api)
     frs = query_api_dataset(data_dir, "frs", "API", api)
@@ -96,6 +98,7 @@ def build_dossier(
 
     sections = {
         "borehole": {"records": int(len(bore)), "units": BOREHOLE_UNITS, "sample": top_rows(bore, None, limit)},
+        "lease_information": lease_information,
         "eor_main": {"records": int(len(eor_main)), "sample": top_rows(eor_main, None, limit)},
         "wellpath_raw": {
             "records": int(len(points)),

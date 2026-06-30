@@ -88,6 +88,102 @@ def decom_estimate_rows() -> list[dict]:
     return [row]
 
 
+def lease_fixture_rows() -> dict[str, list[dict]]:
+    return {
+        "df_boreholes.parquet": [
+            {
+                "API_WELL_NUMBER": "123456789000",
+                "WELL_NAME": "A-1",
+                "WELL_NAME_SUFFIX": "ST01",
+                "SURF_LEASE_NUMBER": "G36102",
+                "BOTM_LEASE_NUMBER": "G36102",
+                "SURF_AREA_CODE": "AC",
+                "SURF_BLOCK_NUMBER": "336",
+                "BOTM_AREA_CODE": "AC",
+                "BOTM_BLOCK_NUMBER": "336",
+            }
+        ],
+        "df_lease_data.parquet": [
+            {
+                "LEASE_NUMBER": "G36102",
+                "LEASE_STATUS_CODE": "UNIT",
+                "LEASE_EFFECTIVE_DATE": "2020-01-01",
+                "LEASE_EXPIRATION_DATE": "2030-01-01",
+                "CURRENT_AREA": 5760.0,
+                "ROYALTY_RATE": 18.75,
+            }
+        ],
+        "df_lease_owner_designated_operator.parquet": [
+            {
+                "LEASE_NUMBER": "G36102",
+                "MMS_COMPANY_NUM": "00002",
+                "ASSIGNMENT_PCT": 50.0,
+                "ASGN_STATUS_CODE": "C",
+                "ASGN_APRV_DATE": "2024-10-01",
+                "ASGN_EFF_DATE": "2024-10-01",
+                "LEASE_DESIG_DATE": "2024-10-05",
+                "OPERATOR_NUM": "00003",
+            }
+        ],
+        "df_lease_owner.parquet": [
+            {
+                "LEASE_NUMBER": "G36102",
+                "MMS_COMPANY_NUM": "00001",
+                "ASSIGNMENT_PCT": 100.0,
+                "ASGN_STATUS_CODE": "T",
+                "ASGN_APRV_DATE": "2022-01-01",
+                "ASGN_EFF_DATE": "2022-01-01",
+                "ASGN_TERM_DATE": "2023-01-01",
+                "OWNER_GROUP_CODE": "",
+                "SN_LSE_OWNER": "10",
+            },
+            {
+                "LEASE_NUMBER": "G36102",
+                "MMS_COMPANY_NUM": "00002",
+                "ASSIGNMENT_PCT": 50.0,
+                "ASGN_STATUS_CODE": "C",
+                "ASGN_APRV_DATE": "2024-10-01",
+                "ASGN_EFF_DATE": "2024-10-01",
+                "ASGN_TERM_DATE": None,
+                "OWNER_GROUP_CODE": "",
+                "SN_LSE_OWNER": "11",
+            },
+        ],
+        "df_lease_owner_remarks.parquet": [
+            {
+                "LEASE_NUMBER": "G36102",
+                "MMS_COMPANY_NUM": "00002",
+                "ASSIGNMENT_PCT": 50.0,
+                "ASGN_APRV_DATE": "2024-10-01",
+                "ASGN_EFF_DATE": "2024-10-01",
+                "OWNER_ALIQUOT_CD": "1",
+                "OWNER_ALQT_DESC": "All rights",
+                "ALIQUOT_AREA": 2880.0,
+            }
+        ],
+        "df_company_all.parquet": [
+            {
+                "MMS_COMPANY_NUM": "00001",
+                "BUS_ASC_NAME": "Seller Energy",
+                "MMS_START_DATE": "2020-01-01",
+                "MMS_TERM_DATE": None,
+            },
+            {
+                "MMS_COMPANY_NUM": "00002",
+                "BUS_ASC_NAME": "Buyer Offshore",
+                "MMS_START_DATE": "2024-01-01",
+                "MMS_TERM_DATE": None,
+            },
+            {
+                "MMS_COMPANY_NUM": "00003",
+                "BUS_ASC_NAME": "Operator LLC",
+                "MMS_START_DATE": "2024-01-01",
+                "MMS_TERM_DATE": None,
+            },
+        ],
+    }
+
+
 class DecomResearchTests(unittest.TestCase):
     def test_emit_result_does_not_crash_on_non_gbk_stdout(self):
         result = {"text": "¿"}
@@ -286,6 +382,47 @@ class DecomResearchTests(unittest.TestCase):
 
         self.assertEqual(result["sections"]["totals"]["records"], 1)
         self.assertEqual(result["sections"]["totals"]["sample"][0]["AUTH_NUMBER"], "G34454")
+
+    def test_dossier_includes_lease_block_ownership_and_history(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data_dir = Path(tmp)
+            for filename, rows in lease_fixture_rows().items():
+                write_fixture(data_dir, filename, rows)
+
+            result = mod.build_dossier(data_dir, "123456789000", limit=10, min_step=100.0)
+
+        lease = result["sections"]["lease_information"]
+        self.assertEqual(lease["records"], 2)
+        self.assertEqual(lease["lease_numbers"], ["G36102"])
+        self.assertEqual(lease["lease_summary"]["sample"][0]["Block"], "336")
+        self.assertEqual(lease["current_owners"]["sample"][0]["Owner Company"], "Buyer Offshore")
+        self.assertEqual(lease["current_owners"]["sample"][0]["Designated Operator"], "Operator LLC")
+        self.assertEqual(lease["ownership_detail"]["sample"][0]["Owner Aliquot Description"], "All rights")
+        self.assertEqual(lease["assignment_history"]["sample"][0]["Assignment Status"], "Current")
+        self.assertIn("do not directly name legal buyer/seller pairs", lease["limitations"][0])
+
+    def test_lease_owner_remarks_can_be_ranked_by_assignment_alias(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data_dir = Path(tmp)
+            write_fixture(
+                data_dir,
+                "df_lease_owner_remarks.parquet",
+                [
+                    {"LEASE_NUMBER": "G1", "MMS_COMPANY_NUM": "1", "ASSIGNMENT_PCT": 25.0},
+                    {"LEASE_NUMBER": "G2", "MMS_COMPANY_NUM": "2", "ASSIGNMENT_PCT": 75.0},
+                ],
+            )
+
+            result = mod.build_ranked_dataset(
+                data_dir=data_dir,
+                table="lease_owner_remarks",
+                rank_by="assignment_pct",
+                limit=1,
+            )
+
+        self.assertEqual(result["rank_by"], "ASSIGNMENT_PCT")
+        self.assertEqual(result["rank_unit"], "pct")
+        self.assertEqual(result["sample"][0]["LEASE_NUMBER"], "G2")
 
 
 if __name__ == "__main__":

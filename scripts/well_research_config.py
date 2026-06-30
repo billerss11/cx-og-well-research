@@ -31,6 +31,12 @@ DATASETS = {
     "decom_prop_well": "df_mv_decom_cost_prop_well.parquet",
     "decom_spud_well": "df_mv_decom_cost_spud_well.parquet",
     "decom_totals": "df_mv_decom_cost_totals.parquet",
+    "lease_data": "df_lease_data.parquet",
+    "lease_list": "df_lease_list.parquet",
+    "lease_owner": "df_lease_owner.parquet",
+    "lease_owner_designated_operator": "df_lease_owner_designated_operator.parquet",
+    "lease_owner_remarks": "df_lease_owner_remarks.parquet",
+    "company_all": "df_company_all.parquet",
 }
 
 MIN_REQUIRED_DATASETS = [
@@ -295,6 +301,14 @@ DECOM_UNITS = {
     "BLK_MAX_WTR_DPTH": "ft",
 }
 
+LEASE_UNITS = {
+    "ASSIGNMENT_PCT": "pct",
+    "Ownership %": "pct",
+    "ROYALTY_RATE": "pct",
+    "ALIQUOT_AREA": "area as reported by BSEE",
+    "CURRENT_AREA": "area as reported by BSEE",
+}
+
 TABLE_UNITS = {
     "boreholes": BOREHOLE_UNITS,
     "production": PRODUCTION_UNITS,
@@ -311,6 +325,10 @@ TABLE_UNITS = {
     "decom_estimates": DECOM_UNITS,
     "decom_spud_well": DECOM_UNITS,
     "decom_totals": DECOM_UNITS,
+    "lease_data": LEASE_UNITS,
+    "lease_owner": LEASE_UNITS,
+    "lease_owner_designated_operator": LEASE_UNITS,
+    "lease_owner_remarks": LEASE_UNITS,
 }
 
 METRIC_ALIASES = {
@@ -353,5 +371,27 @@ METRIC_ALIASES = {
         "p50_cost": "P50_COST",
         "p70_cost": "P70_COST",
         "p90_cost": "P90_COST",
+    },
+    "lease_data": {
+        "royalty_rate": "ROYALTY_RATE",
+        "current_area": "CURRENT_AREA",
+    },
+    "lease_owner": {
+        "assignment_pct": "ASSIGNMENT_PCT",
+        "ownership_pct": "ASSIGNMENT_PCT",
+        "owner_percent": "ASSIGNMENT_PCT",
+        "interest_pct": "ASSIGNMENT_PCT",
+    },
+    "lease_owner_designated_operator": {
+        "assignment_pct": "ASSIGNMENT_PCT",
+        "ownership_pct": "ASSIGNMENT_PCT",
+        "owner_percent": "ASSIGNMENT_PCT",
+        "interest_pct": "ASSIGNMENT_PCT",
+    },
+    "lease_owner_remarks": {
+        "assignment_pct": "ASSIGNMENT_PCT",
+        "ownership_pct": "ASSIGNMENT_PCT",
+        "owner_percent": "ASSIGNMENT_PCT",
+        "interest_pct": "ASSIGNMENT_PCT",
     },
 }

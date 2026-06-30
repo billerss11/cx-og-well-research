@@ -1,17 +1,13 @@
 ---
 name: cx-og-well-research
-description: Use when the user asks to find, rank, research, summarize, audit, or explain Gulf of Mexico wells from local CX O&G Parquet data, including API well dossiers, keyword discovery, field audits, WAR/APD/APM/FRS evidence, trajectory, DLS, EOR, BHP, perforations, casing, production, logging, or decommissioning.
+description: Use when the user asks to find, rank, research, summarize, audit, or explain Gulf of Mexico wells from local CX O&G Parquet data, including API well dossiers, lease/block/current ownership and assignment history, keyword discovery, field audits, WAR/APD/APM/FRS evidence, trajectory, DLS, EOR, BHP, perforations, casing, production, logging, or decommissioning.
 ---
 
 # CX O&G Well Research
 
 Use the bundled CLI as the evidence source. Do not invent missing records.
 
-Runtime needs the ready Parquet data folder. Repo discovery is only a convenience when running from the CX O&G APP root.
-
-## Core Command
-
-Use the shared env if default Python lacks DuckDB:
+Set these once:
 
 ```powershell
 $script = "C:\Users\17999\.codex\skills\cx-og-well-research\scripts\build_well_research.py"
@@ -19,128 +15,46 @@ $data = "J:\cx_coding_project_unsyc\python\CX_O-G_APP\data"
 conda run -n codex_env python $script --check-data-dir --data-dir $data
 ```
 
-## Decision Workflow
+## Route
 
-1. Vague topic or incident: run discovery first with `--keyword` or `--incident`.
-2. Known API number: run dossier mode with `--api`.
-3. Field/operator/name question: use `--field`; add `--audit` for data-completeness ranking.
-4. Ranked question: use `--describe-table` if column names are unclear, then `--rank-table` and `--rank-by`.
-5. Casing-size question: use `--casing-sizes`, then narrow with `--casing-source`, `--casing-match`, or `--casing-latest-only`.
-6. Production, charts, or timelines: add `--include-production`, `--production-group-by`, or `--timeline`; export JSON with `--format json --output ...`.
-7. Many wells returned: ask which API to inspect before building a full dossier.
+- Unknown topic/incident: use `--keyword` or `--incident`.
+- Known API: use `--api`; API dossiers include `lease_information` when lease parquet files exist.
+- Field/operator/name: use `--field`; add `--audit` for data-completeness ranking.
+- Ranked metric/table: use `--describe-table <key>` if columns are unclear, then `--rank-table <key> --rank-by <alias-or-column>`.
+- Casing-size search: use `--casing-sizes`, plus `--casing-source`, `--casing-match`, `--casing-latest-only` as needed.
+- Production/chart/timeline: add `--include-production`, `--production-group-by`, or `--timeline`; use JSON for handoff.
+- Decommissioning: use `--decom`, `--decom-api`, `--decom-lease`, `--decom-area`, `--decom-block`, or cost filters.
+- Many wells returned: ask which API to inspect before building a full dossier.
 
-## Common Commands
-
-Full dossier:
-
-```powershell
-conda run -n codex_env python $script --api 608054000500 --data-dir $data
-```
-
-Keyword discovery:
+## Command Patterns
 
 ```powershell
-conda run -n codex_env python $script --keyword "stuck pipe" --filter MADISON --data-dir $data
+conda run -n codex_env python $script --api <api> --data-dir $data
+conda run -n codex_env python $script --keyword "<text>" --filter <field-or-operator> --data-dir $data
+conda run -n codex_env python $script --incident stuck-pipe --filter <field-or-operator> --data-dir $data
+conda run -n codex_env python $script --describe-table <table> --data-dir $data
+conda run -n codex_env python $script --rank-table <table> --rank-by <alias-or-column> --limit 10 --data-dir $data
+conda run -n codex_env python $script --api <api> --full --format json --output <file.json> --data-dir $data
 ```
 
-Incident preset discovery:
+Useful flags: `--rank-direction asc`, `--min-step <ft>`, `--completion-reconcile`, `--casing-compare`, `--production-group-by interval|completion|product`, `--decom-cost-case p50|p70|p90|dtr`, `--decom-min-cost <amount>`, `--decom-pa-adjustment Y|N`.
 
-```powershell
-conda run -n codex_env python $script --incident stuck-pipe --filter MADISON --data-dir $data
-```
-
-Describe available columns, aliases, units, and sample rows:
-
-```powershell
-conda run -n codex_env python $script --describe-table wellpath_metrics --data-dir $data
-```
-
-Rank a table by a real column or metric alias:
-
-```powershell
-conda run -n codex_env python $script --rank-table wellpath_metrics --rank-by horizontal_departure --limit 10 --data-dir $data
-```
-
-Global casing search:
-
-```powershell
-conda run -n codex_env python $script --casing-sizes "13.375,9.625" --casing-source any --casing-match all --data-dir $data
-```
-
-Full JSON for handoff:
-
-```powershell
-conda run -n codex_env python $script --api 608054000500 --full --format json --output well_608054000500_full.json --data-dir $data
-```
-
-Production time series for plotting:
-
-```powershell
-conda run -n codex_env python $script --api 608054000500 --include-production --production-group-by interval --format json --output well_608054000500_production.json --data-dir $data
-```
-
-Useful optional flags:
-
-- `--rank-direction asc`: smallest or earliest ranked values.
-- `--timeline`: chronological well evidence in a dossier.
-- `--min-step <ft>`: minimum measured-depth spacing for DLS analysis.
-- `--decom-cost-case p50|p70|p90|dtr`: decommissioning percentile/case for cost filtering and ranking.
-- `--decom-min-cost <amount>`, `--decom-area <area>`, `--decom-block <block>`, `--decom-pa-adjustment Y|N`: decommissioning filters.
-
-## Metric Aliases
-
-Use aliases when the user speaks in plain English. Run `--describe-table <table>` to see aliases supported by that table.
-
-Important aliases:
+## Aliases
 
 - `wellpath_metrics`: `horizontal_departure`, `horizontal_distance`, `source_horizontal_departure`, `lateral_length`, `max_dls`, `avg_dls`, `trajectory_type`, `closure_azimuth`, `max_inclination`.
 - `boreholes`: `total_depth`, `measured_depth`, `tvd`, `water_depth`.
 - `production`: `production_oil`, `oil_volume`, `production_gas`, `gas_volume`, `production_water`, `water_volume`, `days_on_prod`.
 - `decom_spud_well` / `decom_totals`: `decom_cost`, `p50_cost`, `p70_cost`, `p90_cost`.
+- `lease_owner`, `lease_owner_designated_operator`, `lease_owner_remarks`: `assignment_pct`, `ownership_pct`, `owner_percent`, `interest_pct`.
+- `lease_data`: `royalty_rate`, `current_area`.
 
-## Workflow Recipes
+## Guardrails
 
-Furthest horizontal well:
-
-1. Rank `wellpath_metrics` by `horizontal_departure` descending.
-2. Take the top `API Number`.
-3. Run dossier mode for that API.
-4. State metric, value, API, trajectory type, station counts, and metric status.
-
-Deepest well:
-
-1. Rank `boreholes` by `total_depth` descending.
-2. Take `API_WELL_NUMBER`.
-3. Run dossier mode.
-
-Highest DLS:
-
-1. Rank `wellpath_metrics` by `max_dls` descending.
-2. Inspect `metric_status`, station counts, and spacing before making a strong claim.
-3. Run dossier mode for the top API.
-
-Field audit:
-
-1. Run `--field <name> --audit`.
-2. Report data score and availability counts.
-3. Ask for an API before creating a full dossier if many wells match.
-
-APD planned vs WAR actual casing:
-
-1. Run dossier mode with `--casing-compare`.
-2. Keep planned APD casing separate from actual WAR casing/tubular evidence.
-
-Production vs EOR completion reconciliation:
-
-1. Run dossier mode with `--completion-reconcile`.
-2. Do not treat production `Completion Name` and EOR completion identifiers as identical.
-
-Decommissioning cost ranking:
-
-1. Rank individual well rows with `--rank-table decom_spud_well --rank-by decom_cost`.
-2. Use `decom_totals` only for lease/category totals, not single-well ranking.
-3. For the top API, run both `--decom-api <api>` and, when available, `--decom-lease <lease>`.
-4. If an API well cost equals the lease `Wells Decom Cost`, state that it may be a lease/package estimate attached to the API, not a clean standalone abandonment cost.
+- For ranking questions: rank first, then run a dossier on the top API before making a strong claim.
+- For lease buyer/seller questions: BSEE assignment rows show current/terminated owners, not explicit legal buyer/seller pairs.
+- Keep APD planned casing separate from WAR actual casing/tubular evidence.
+- Do not treat production `Completion Name` and EOR completion identifiers as identical.
+- Use `decom_totals` for lease/category totals, not single-well ranking.
 
 ## References
 
@@ -149,4 +63,5 @@ Load only when needed:
 - `references/trajectory.md`: trajectory, DLS, map coordinate, and wellpath metric rules.
 - `references/casing.md`: casing search and APD/WAR comparison rules.
 - `references/decommissioning.md`: decommissioning cost/inventory workflows.
+- `references/lease.md`: lease/block ownership, current owner, and assignment-history interpretation.
 - `references/output-rules.md`: dossier sections, answer format, JSON/HTML handoff rules.

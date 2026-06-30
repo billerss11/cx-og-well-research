@@ -4,13 +4,11 @@ Use for APD planned casing, WAR actual casing/tubular records, and global casing
 
 Core rule: keep planned APD casing separate from actual WAR casing/tubular evidence. Do not merge them into one "actual casing" claim.
 
-Common commands:
+## Commands
 
-```powershell
-conda run -n codex_env python C:\Users\17999\.codex\skills\cx-og-well-research\scripts\build_well_research.py --casing-sizes "13.375,9.625" --data-dir J:\cx_coding_project_unsyc\python\CX_O-G_APP\data
-conda run -n codex_env python C:\Users\17999\.codex\skills\cx-og-well-research\scripts\build_well_research.py --casing-sizes "13.375,9.625" --casing-source war --filter MADISON --data-dir J:\cx_coding_project_unsyc\python\CX_O-G_APP\data
-conda run -n codex_env python C:\Users\17999\.codex\skills\cx-og-well-research\scripts\build_well_research.py --api 608054000500 --casing-compare --data-dir J:\cx_coding_project_unsyc\python\CX_O-G_APP\data
-```
+- Global search: `conda run -n codex_env python $script --casing-sizes "13.375,9.625" --data-dir $data`
+- WAR-only filtered search: `... --casing-source war --filter MADISON`
+- API comparison: `... --api <api> --casing-compare --data-dir $data`
 
 Options: `--casing-source any|apd|war`, `--casing-match all|any`, `--casing-tolerance`, `--casing-latest-only`, `--filter`.
 
