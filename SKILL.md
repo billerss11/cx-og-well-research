@@ -1,67 +1,75 @@
 ---
 name: cx-og-well-research
-description: Use when the user asks to find, rank, research, summarize, audit, or explain Gulf of Mexico wells from local CX O&G Parquet data, including API well dossiers, lease/block/current ownership and assignment history, keyword discovery, field audits, WAR/APD/APM/FRS evidence, trajectory, DLS, EOR, BHP, perforations, casing, production, logging, or decommissioning.
+description: Research Gulf of Mexico wells, regulatory evidence, fields, leases, production, approvals, platforms, pipelines, casing, decommissioning, and local CX O&G Parquet datasets. Use for exact or fuzzy discovery, incident evidence, full well dossiers, asset details, comparisons, audits, rankings, and source-backed explanations.
 ---
 
-# CX O&G Well Research
+# CX O&G Research
 
-Use the bundled CLI as the evidence source. Do not invent missing records.
-
-Set these once:
+Use the standalone CLI. Do not import the application backend or require its server.
 
 ```powershell
-$script = "C:\Users\17999\.codex\skills\cx-og-well-research\scripts\build_well_research.py"
-$data = "J:\cx_coding_project_unsyc\python\CX_O-G_APP\data"
-conda run -n codex_env python $script --check-data-dir --data-dir $data
+$script = "C:\Users\17999\.codex\skills\cx-og-well-research\scripts\cx_og_research.py"
+$repo = "J:\cx_coding_project_unsyc\python\CX_O-G_APP"
+conda run -n cxstreamlit python $script --repo $repo doctor
 ```
+
+Put global options before the command: `--repo`, `--data-dir`, `--format json|markdown`, `--output`, and `--sample-limit`. JSON is the default.
 
 ## Route
 
-- Unknown topic/incident: use `--keyword` or `--incident`.
-- Known API: use `--api`; API dossiers include `lease_information` when lease parquet files exist.
-- Field/operator/name: use `--field`; add `--audit` for data-completeness ranking.
-- Ranked metric/table: use `--describe-table <key>` if columns are unclear, then `--rank-table <key> --rank-by <alias-or-column>`.
-- Casing-size search: use `--casing-sizes`, plus `--casing-source`, `--casing-match`, `--casing-latest-only` as needed.
-- Production/chart/timeline: add `--include-production`, `--production-group-by`, or `--timeline`; use JSON for handoff.
-- Decommissioning: use `--decom`, `--decom-api`, `--decom-lease`, `--decom-area`, `--decom-block`, or cost filters.
-- Many wells returned: ask which API to inspect before building a full dossier.
+- Unknown well, field, operator, or API: `wells search`.
+- Incident or phrase evidence: `evidence search`; inspect one result with `evidence detail`.
+- Known API: `well dossier`; use `--sections` only when the full dossier is unnecessary.
+- Field/lease research: `fields list|compare|leases`.
+- Production comparison: `production compare`.
+- Regulatory approvals: `approvals search|options`.
+- Platform or pipeline research: `platforms search|detail` or `pipelines search|detail`.
+- Multi-well evidence inventory: `bulk files|war`.
+- Casing-size discovery: `casing search`.
+- Decommissioning inventory/cost: `decommissioning search`.
+- Dataset inspection/ranking: `tables list|describe|rank`.
 
-## Command Patterns
+## Common Commands
 
 ```powershell
-conda run -n codex_env python $script --api <api> --data-dir $data
-conda run -n codex_env python $script --keyword "<text>" --filter <field-or-operator> --data-dir $data
-conda run -n codex_env python $script --incident stuck-pipe --filter <field-or-operator> --data-dir $data
-conda run -n codex_env python $script --describe-table <table> --data-dir $data
-conda run -n codex_env python $script --rank-table <table> --rank-by <alias-or-column> --limit 10 --data-dir $data
-conda run -n codex_env python $script --api <api> --full --format json --output <file.json> --data-dir $data
+conda run -n cxstreamlit python $script --repo $repo wells search "MADISON"
+conda run -n cxstreamlit python $script --repo $repo wells search "MADSN" --match-mode fuzzy --threshold 75
+conda run -n cxstreamlit python $script --repo $repo evidence search --incident stuck-pipe
+conda run -n cxstreamlit python $script --repo $repo evidence detail <api> --incident stuck-pipe
+conda run -n cxstreamlit python $script --repo $repo well dossier <api>
+conda run -n cxstreamlit python $script --repo $repo --sample-limit 5 well dossier <api> --sections relationships,ownership,production,timeline
+conda run -n cxstreamlit python $script --repo $repo production compare <api-1> <api-2> --group-by well
+conda run -n cxstreamlit python $script --repo $repo approvals search --asset-type well --asset-identifier <api>
+conda run -n cxstreamlit python $script --repo $repo platforms search --company "<operator>"
+conda run -n cxstreamlit python $script --repo $repo pipelines search --status <code> --product <code>
+conda run -n cxstreamlit python $script --repo $repo casing search "13.375,9.625" --source war
+conda run -n cxstreamlit python $script --repo $repo decommissioning search --lease <lease> --cost-case p90
+conda run -n cxstreamlit python $script --repo $repo tables describe production
+conda run -n cxstreamlit python $script --repo $repo tables rank production oil_volume
 ```
 
-Useful flags: `--rank-direction asc`, `--min-step <ft>`, `--completion-reconcile`, `--casing-compare`, `--production-group-by interval|completion|product`, `--decom-cost-case p50|p70|p90|dtr`, `--decom-min-cost <amount>`, `--decom-pa-adjustment Y|N`.
-
-## Aliases
-
-- `wellpath_metrics`: `horizontal_departure`, `horizontal_distance`, `source_horizontal_departure`, `lateral_length`, `max_dls`, `avg_dls`, `trajectory_type`, `closure_azimuth`, `max_inclination`.
-- `boreholes`: `total_depth`, `measured_depth`, `tvd`, `water_depth`.
-- `production`: `production_oil`, `oil_volume`, `production_gas`, `gas_volume`, `production_water`, `water_volume`, `days_on_prod`.
-- `decom_spud_well` / `decom_totals`: `decom_cost`, `p50_cost`, `p70_cost`, `p90_cost`.
-- `lease_owner`, `lease_owner_designated_operator`, `lease_owner_remarks`: `assignment_pct`, `ownership_pct`, `owner_percent`, `interest_pct`.
-- `lease_data`: `royalty_rate`, `current_area`.
+Empty searches are valid. Treat warnings and `coverage` as part of the answer; a missing optional dataset means partial coverage, not zero records.
+`--sample-limit` bounds dossier and representative samples. Use `--page-size` to bound paginated search/detail rows.
 
 ## Guardrails
 
-- For ranking questions: rank first, then run a dossier on the top API before making a strong claim.
-- For lease buyer/seller questions: BSEE assignment rows show current/terminated owners, not explicit legal buyer/seller pairs.
-- Keep APD planned casing separate from WAR actual casing/tubular evidence.
-- Do not treat production `Completion Name` and EOR completion identifiers as identical.
-- Use `decom_totals` for lease/category totals, not single-well ranking.
+- Confirm fuzzy matches with exact API or asset identifiers before making a strong claim.
+- Keep planned APD casing separate from actual WAR casing/tubular evidence.
+- Do not equate production completion names with EOR completion identifiers.
+- Do not label lease assignment parties as buyers or sellers without separate evidence.
+- Distinguish exact regulatory asset links from unresolved or grouped links.
+- Return document metadata and resolved local paths only. Do not copy or open files automatically.
+- Do not produce geometry, coordinates, GeoJSON, bathymetry, continental-shelf, or other map output.
 
 ## References
 
-Load only when needed:
+Load only the relevant file:
 
-- `references/trajectory.md`: trajectory, DLS, map coordinate, and wellpath metric rules.
-- `references/casing.md`: casing search and APD/WAR comparison rules.
-- `references/decommissioning.md`: decommissioning cost/inventory workflows.
-- `references/lease.md`: lease/block ownership, current owner, and assignment-history interpretation.
-- `references/output-rules.md`: dossier sections, answer format, JSON/HTML handoff rules.
+- `references/regulatory.md`: applications, timelines, documents, approvals, and link confidence.
+- `references/assets.md`: platform and pipeline search/detail rules.
+- `references/casing.md`: casing search and APD/WAR interpretation.
+- `references/lease.md`: ownership and assignment-history interpretation.
+- `references/trajectory.md`: trajectory and DLS rules without map output.
+- `references/decommissioning.md`: decommissioning cost and inventory rules.
+- `references/dataset-contract.md`: catalog, coverage, units, identifiers, and ranking.
+- `references/output-rules.md`: canonical envelope, bounded output, and answer format.

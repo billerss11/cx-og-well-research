@@ -1,26 +1,40 @@
 # Output Rules
 
-Use for full dossiers, JSON handoff, and answer formatting.
+Every successful JSON result contains:
 
-## Dossiers
+- `schema_version`
+- `command`
+- `query`
+- `data`
+- `provenance`
+- `coverage`
+- `warnings`
 
-Report available record counts and evidence for: borehole identity, lease/block/owners, EOR/BHP/perf/markers, wellpath/DLS/metrics, APD casing, WAR casing/text/logging, APD/APM attachments, and FRS files.
+Use `--sample-limit` to bound dossier and representative rows. It does not replace pagination: use `--page-size` for search/detail rows and the command-specific history page size for history. Empty search results are successful.
 
-Optional flags:
+Exit codes:
 
-- `--include-production`: production range, totals, peaks, status, completion count.
-- `--production-group-by ...`: monthly plot data by completion/product/interval.
-- `--completion-reconcile`: production completion IDs vs EOR physical completions.
-- `--casing-compare`: latest planned APD casing vs latest actual WAR casing.
-- `--timeline`: chronological well evidence.
-- `--field ... --audit`: data-availability ranking.
+- `0`: success, including an empty search
+- `2`: invalid input
+- `3`: required data unavailable
+- `1`: unexpected failure
 
 ## Answer Rules
 
-- Start with summary and data availability.
-- State absent records plainly.
-- Preserve source fields, units, dates, and section counts.
-- Keep APD planned casing separate from WAR actual casing.
-- Do not equate production `Completion Name` with EOR completion IDs.
-- Do not present lease assignment history as explicit buyer/seller pairs without separate proof.
-- For plots/apps/reports, prefer `--format json --output ...`; add `--full` for broad exports.
+- Start with the result and important coverage limits.
+- Preserve source identifiers, dates, units, counts, ordering, and warnings.
+- Say “no matching records” only when required data was available.
+- Say “coverage is partial” when optional data is missing.
+- Confirm fuzzy matches with exact identifiers.
+- Keep APD planned casing and WAR actual casing separate.
+- Keep production and EOR completion identifiers separate.
+- Do not infer legal buyers/sellers from assignment status.
+- Distinguish exact regulatory asset links from unresolved links.
+- List document metadata and resolved local paths only; never copy or open documents automatically.
+- Do not include map fields or map-oriented datasets.
+
+For a durable handoff, place global output flags before the command:
+
+```powershell
+conda run -n cxstreamlit python $script --repo $repo --format json --output <result.json> <group> <command> ...
+```

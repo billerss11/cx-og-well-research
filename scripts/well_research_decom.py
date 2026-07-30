@@ -67,17 +67,29 @@ def build_decom_research(
     }
 
     derived_lease_numbers = derive_decom_api_leases(data_dir, api) if api and not lease else set()
+    warnings = []
+    if api and not lease and not derived_lease_numbers:
+        warnings.append(
+            "No API-specific decommissioning lease link was found; unrelated "
+            "lease, platform, pipeline, and Gulf-wide totals are excluded."
+        )
     estimates = apply_decom_common_filters(
         read_dataset(data_dir, "decom_estimates"), lease, None, area, block, pa_adjustment, None
     )
-    if not lease and derived_lease_numbers:
+    if api and not lease:
         estimates = filter_df_by_lease_set(estimates, "LEASE_NUMBER", derived_lease_numbers)
     lease_numbers = decom_lease_numbers(estimates)
     result["sections"]["lease_estimates"] = decom_section(estimates, None, limit)
 
     totals = read_dataset(data_dir, "decom_totals")
     totals = filter_decom_lease(totals, ["AUTH_NUMBER"], lease)
-    if not lease and (lease_numbers or derived_lease_numbers):
+    if api and not lease:
+        totals = filter_df_by_lease_set(
+            totals,
+            "AUTH_NUMBER",
+            lease_numbers or derived_lease_numbers,
+        )
+    elif not lease and (lease_numbers or derived_lease_numbers):
         totals = filter_df_by_lease_set(totals, "AUTH_NUMBER", lease_numbers or derived_lease_numbers)
     totals = filter_decom_min_cost(totals, DECOM_CASE_COLUMNS[cost_case]["totals"], min_cost)
     result["sections"]["totals"] = decom_section(totals, DECOM_CASE_COLUMNS[cost_case]["totals"], limit)
@@ -108,20 +120,26 @@ def build_decom_research(
     proposed_wells = filter_decom_min_cost(proposed_wells, DECOM_CASE_COLUMNS[cost_case]["wells"], min_cost)
     result["sections"]["proposed_wells"] = decom_section(proposed_wells, DECOM_CASE_COLUMNS[cost_case]["wells"], limit)
 
+    asset_lease_numbers = (
+        derived_lease_numbers
+        if not (api and not lease and not derived_lease_numbers)
+        else {"__no_matching_lease__"}
+    )
     result["sections"]["installed_platforms"] = build_decom_asset_section(
-        data_dir, "decom_inst_plat", "platforms", lease, derived_lease_numbers, area, block, min_cost, cost_case, limit
+        data_dir, "decom_inst_plat", "platforms", lease, asset_lease_numbers, area, block, min_cost, cost_case, limit
     )
     result["sections"]["proposed_platforms"] = build_decom_asset_section(
-        data_dir, "decom_prop_plat", "platforms", lease, derived_lease_numbers, area, block, min_cost, cost_case, limit
+        data_dir, "decom_prop_plat", "platforms", lease, asset_lease_numbers, area, block, min_cost, cost_case, limit
     )
     result["sections"]["installed_pipelines"] = build_decom_asset_section(
-        data_dir, "decom_inst_pipe", "pipelines", lease, derived_lease_numbers, area, block, min_cost, cost_case, limit
+        data_dir, "decom_inst_pipe", "pipelines", lease, asset_lease_numbers, area, block, min_cost, cost_case, limit
     )
     result["sections"]["proposed_pipelines"] = build_decom_asset_section(
-        data_dir, "decom_prop_pipe", "pipelines", lease, derived_lease_numbers, area, block, min_cost, cost_case, limit
+        data_dir, "decom_prop_pipe", "pipelines", lease, asset_lease_numbers, area, block, min_cost, cost_case, limit
     )
 
     result["summary"] = {name: section["records"] for name, section in result["sections"].items()}
+    result["warnings"] = warnings
     return result
 
 

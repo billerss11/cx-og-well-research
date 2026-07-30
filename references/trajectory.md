@@ -1,29 +1,23 @@
 # Trajectory Rules
 
-Use for trajectory, DLS, horizontal departure, and viewer questions.
+Use for measured depth, TVD, inclination, azimuth, DLS, horizontal departure, and trajectory classification.
 
-## Metrics
+## Commands
 
-Prefer `df_wellpath_metrics.parquet` for horizontal distance/departure, TVD delta, closure azimuth, inclination, lateral length, DLS, trajectory type, and metric status.
+```powershell
+conda run -n cxstreamlit python $script --repo $repo well dossier <api> --sections trajectory,wellpath_metrics,azimuth_dls
+conda run -n cxstreamlit python $script --repo $repo fields compare <field-1> <field-2>
+conda run -n cxstreamlit python $script --repo $repo tables rank wellpath_metrics horizontal_departure
+```
 
-- Furthest horizontal: rank `wellpath_metrics` by `horizontal_departure`.
-- Use source metrics only when the user asks for source endpoint/survey-derived values.
-- Source metrics use lon/lat endpoints and TVD delta.
-- Calculated metrics use full MD/inc/azimuth stations with minimum curvature.
-- Metrics exclude plot-only artificial MD=0 rows.
+Prefer `wellpath_metrics` for calculated horizontal distance/departure, TVD delta, closure azimuth, inclination, lateral length, DLS, trajectory type, and metric status.
 
-## Coordinates
+- Calculated metrics use MD/inclination/azimuth stations and minimum curvature.
+- Metrics exclude artificial plot-only MD=0 rows.
+- Horizontal: maximum inclination at least 80 degrees.
+- Vertical: MD-weighted average inclination at most 3 degrees.
+- Directional: everything else.
 
-- Prefer `webmerc_easting_ft` / `webmerc_northing_ft`; `easting` / `northing` are legacy aliases.
-- Do not calculate horizontal displacement from Web Mercator deltas.
-- Source displacement uses local offsets from `Latitude` / `Longitude`.
-- Calculated path displacement and DLS use `MD`, `Deviation Angle`, `Azimuth`.
-- 3D viewers: use local east/north offsets plus TVD/depth; label vertical exaggeration.
-- Surface-to-first-survey is visual only unless source data supports it.
+Report API, metric alias and resolved column, value, units, station count, trajectory type, and metric status.
 
-## Type And Answer Checks
-
-- `horizontal`: max inclination >= 80 degrees.
-- `vertical`: MD-weighted average inclination <= 3 degrees.
-- `directional`: everything else.
-- Always report alias/column, value, units, API, trajectory type, station counts when available, and `metric_status`.
+Map output is excluded. Do not return latitude, longitude, easting, northing, geometry, GeoJSON, bathymetry, or continental-shelf data.

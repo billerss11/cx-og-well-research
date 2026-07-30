@@ -1,15 +1,19 @@
 # Casing Rules
 
-Use for APD planned casing, WAR actual casing/tubular records, and global casing searches.
-
-Core rule: keep planned APD casing separate from actual WAR casing/tubular evidence. Do not merge them into one "actual casing" claim.
+Use for global casing-size searches and API-level casing reconciliation.
 
 ## Commands
 
-- Global search: `conda run -n codex_env python $script --casing-sizes "13.375,9.625" --data-dir $data`
-- WAR-only filtered search: `... --casing-source war --filter MADISON`
-- API comparison: `... --api <api> --casing-compare --data-dir $data`
+```powershell
+conda run -n cxstreamlit python $script --repo $repo casing search "13.375,9.625"
+conda run -n cxstreamlit python $script --repo $repo casing search "9.625" --source war --filter MADISON
+conda run -n cxstreamlit python $script --repo $repo well dossier <api> --sections casing,apd_casing,war_casing,casing_comparison
+```
 
-Options: `--casing-source any|apd|war`, `--casing-match all|any`, `--casing-tolerance`, `--casing-latest-only`, `--filter`.
+Options: `--source any|apd|war`, `--match all|any`, `--tolerance`, `--filter`, and `--latest-only`.
 
-Report requested sizes/tolerance, source used, APD/WAR distinction, wells matched, and representative casing depths with units.
+APD casing is planned. WAR casing/tubular data is reported actual work. Keep both source families separate even when size and depth appear to reconcile.
+
+Report requested sizes and tolerance, source family, match mode, well/API count, representative depths, and units.
+
+The casing comparison uses the latest APD submission and latest WAR report as snapshots. Older WAR reports can contain additional strings absent from the latest report; use the full `war_casing` section when researching all installed strings.

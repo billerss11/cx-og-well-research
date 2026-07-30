@@ -247,18 +247,19 @@ def clean_text(value: Any, max_chars: int = 450) -> str:
 def to_jsonable(value: Any) -> Any:
     if isinstance(value, dict):
         return {str(k): to_jsonable(v) for k, v in value.items()}
-    if isinstance(value, list):
+    if isinstance(value, (list, tuple, set)):
         return [to_jsonable(v) for v in value]
-    if hasattr(value, "isoformat"):
-        return value.isoformat()
+    if isinstance(value, Path):
+        return str(value)
     if isinstance(value, np.ndarray):
         return [to_jsonable(v) for v in value.tolist()]
-    if not isinstance(value, (dict, list, tuple)):
-        try:
-            if pd.isna(value):
-                return None
-        except Exception:
-            pass
+    try:
+        if pd.isna(value):
+            return None
+    except Exception:
+        pass
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
     if hasattr(value, "item"):
         try:
             return value.item()

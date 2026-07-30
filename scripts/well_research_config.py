@@ -1,52 +1,278 @@
-"""Static dataset, unit, and alias metadata for well research."""
+"""Dataset contracts, units, aliases, and research presets."""
+
+
+FAMILY_CONTRACTS = {
+    "wells": {
+        "identifiers": ("API_WELL_NUMBER",),
+        "units": {"WATER_DEPTH": "ft", "BH_TOTAL_MD": "ft"},
+        "aliases": {"api": "API_WELL_NUMBER", "operator": "COMPANY_NAME"},
+    },
+    "production": {
+        "identifiers": ("Api Well Number", "Completion Name"),
+        "units": {
+            "Monthly Oil Volume": "bbl",
+            "Monthly Gas Volume": "mcf",
+            "Monthly Water Volume": "bbl",
+        },
+        "aliases": {
+            "oil_volume": "Monthly Oil Volume",
+            "gas_volume": "Monthly Gas Volume",
+            "water_volume": "Monthly Water Volume",
+        },
+    },
+    "regulatory": {
+        "identifiers": ("API_WELL_NUMBER", "SN_WAR"),
+        "units": {},
+        "aliases": {"api": "API_WELL_NUMBER", "report_id": "SN_WAR"},
+    },
+    "casing": {
+        "identifiers": ("SN_APD_FK", "SN_WAR_FK"),
+        "units": {
+            "CASING_SIZE": "in",
+            "CASING_WEIGHT": "lb/ft",
+            "CASING_SECTION_MD": "ft",
+            "CSNG_SETTING_BOTM_MD": "ft",
+        },
+        "aliases": {"casing_size": "CASING_SIZE", "bottom_md": "CASING_SECTION_MD"},
+    },
+    "trajectory": {
+        "identifiers": ("API Number",),
+        "units": {"MD": "ft", "TVD": "ft", "DLS": "deg/100ft"},
+        "aliases": {"api": "API Number", "horizontal_departure": "calc_max_horizontal_departure_ft"},
+    },
+    "wellbore": {
+        "identifiers": ("API_WELL_NUMBER",),
+        "units": {"BHTST_PRESSURE": "psi", "BHTST_MD": "ft", "BHTST_TVD": "ft"},
+        "aliases": {"api": "API_WELL_NUMBER"},
+    },
+    "applications": {
+        "identifiers": ("API_WELL_NUMBER", "SN_APD", "application_id"),
+        "units": {},
+        "aliases": {"api": "API_WELL_NUMBER", "application": "application_id"},
+    },
+    "documents": {
+        "identifiers": ("API_WELL_NUMBER", "API", "DOC_ID", "document_id"),
+        "units": {"FILE_SIZE": "source units"},
+        "aliases": {"api": "API_WELL_NUMBER", "document": "DOC_ID"},
+    },
+    "approvals": {
+        "identifiers": ("approval_event_id", "approval_group_id", "asset_identifier"),
+        "units": {},
+        "aliases": {"asset": "asset_identifier", "approval": "approval_event_id"},
+    },
+    "platforms": {
+        "identifiers": ("COMPLEX_ID_NUM", "STRUCTURE_NUMBER"),
+        "units": {"WATER_DEPTH": "ft"},
+        "aliases": {"complex_id": "COMPLEX_ID_NUM", "structure": "STRUCTURE_NUMBER"},
+    },
+    "pipelines": {
+        "identifiers": ("segment_number",),
+        "units": {"segment_length_ft": "ft", "max_water_depth_ft": "ft", "maop_psi": "psi"},
+        "aliases": {"segment": "segment_number", "company": "operator_name"},
+    },
+    "decommissioning": {
+        "identifiers": ("API_WELL_NUMBER", "LEASE_NUMBER", "AUTH_NUMBER"),
+        "units": {"P50_COST": "USD", "P70_COST": "USD", "P90_COST": "USD"},
+        "aliases": {"api": "API_WELL_NUMBER", "lease": "LEASE_NUMBER"},
+    },
+    "leases": {
+        "identifiers": ("LEASE_NUMBER",),
+        "units": {"ASSIGNMENT_PCT": "pct", "CURRENT_AREA": "acres"},
+        "aliases": {"lease": "LEASE_NUMBER", "assignment_pct": "ASSIGNMENT_PCT"},
+    },
+    "companies": {
+        "identifiers": ("MMS_COMPANY_NUM",),
+        "units": {},
+        "aliases": {"company_number": "MMS_COMPANY_NUM", "company": "BUS_ASC_NAME"},
+    },
+    "logging": {
+        "identifiers": ("API_WELL_NUMBER",),
+        "units": {"TOP_MD": "ft", "BOTTOM_MD": "ft"},
+        "aliases": {"api": "API_WELL_NUMBER"},
+    },
+}
+
+
+def _dataset(
+    filename: str,
+    family: str,
+    required_columns: tuple[str, ...] = (),
+    *,
+    required: bool = False,
+) -> dict:
+    contract = FAMILY_CONTRACTS.get(
+        family,
+        {"identifiers": (), "units": {}, "aliases": {}},
+    )
+    return {
+        "filename": filename,
+        "family": family,
+        "required_columns": required_columns,
+        "identifiers": contract["identifiers"],
+        "units": contract["units"],
+        "aliases": contract["aliases"],
+        "required": required,
+    }
+
+
+DATASET_CATALOG = {
+    "boreholes": _dataset(
+        "df_boreholes.parquet",
+        "wells",
+        ("API_WELL_NUMBER", "WELL_NAME", "COMPANY_NAME"),
+        required=True,
+    ),
+    "production": _dataset(
+        "df_gom_production.parquet",
+        "production",
+        ("Api Well Number", "Production Date", "Monthly Oil Volume"),
+        required=True,
+    ),
+    "war_main": _dataset(
+        "df_WAR_main.parquet",
+        "regulatory",
+        ("SN_WAR", "API_WELL_NUMBER"),
+        required=True,
+    ),
+    "war_text": _dataset(
+        "df_WAR.parquet",
+        "regulatory",
+        ("SN_WAR", "TEXT_REMARK"),
+        required=True,
+    ),
+    "war_tubular": _dataset("df_mv_war_tubular_summaries.parquet", "casing"),
+    "war_tubular_prop": _dataset("df_mv_war_tubular_summaries_prop.parquet", "casing"),
+    "points": _dataset("df_points.parquet", "trajectory"),
+    "azimuth": _dataset(
+        "df_azimuth.parquet",
+        "trajectory",
+        ("API Number", "MD", "TVD"),
+        required=True,
+    ),
+    "wellpath_metrics": _dataset(
+        "df_wellpath_metrics.parquet",
+        "trajectory",
+        ("API Number", "metric_status"),
+        required=True,
+    ),
+    "directional_surveys": _dataset("df_directional_surveys.parquet", "trajectory"),
+    "bhp": _dataset("df_bhp_survey.parquet", "wellbore"),
+    "well_potential_tests": _dataset("df_well_potential_tests.parquet", "wellbore"),
+    "api_changes": _dataset("df_api_changes.parquet", "wellbore"),
+    "api_well_completions": _dataset("df_api_well_completions.parquet", "wellbore"),
+    "eor_main": _dataset("df_eor_mv_eor_mainquery.parquet", "wellbore"),
+    "eor_main_prop": _dataset("df_eor_mv_eor_mainquery_prop.parquet", "wellbore"),
+    "eor_geomarkers": _dataset("df_eor_mv_eor_geomarkers.parquet", "wellbore"),
+    "eor_completions": _dataset("df_eor_mv_eor_completions.parquet", "wellbore"),
+    "eor_completions_prop": _dataset("df_eor_mv_eor_completionsprop.parquet", "wellbore"),
+    "eor_comp_status_codes": _dataset("df_eor_mv_eor_compstatcodes.parquet", "wellbore"),
+    "eor_cut_casings": _dataset("df_eor_mv_eor_cut_casings.parquet", "wellbore"),
+    "eor_hcbearing_completions": _dataset(
+        "df_eor_mv_eor_hcbearing_intvl_comps.parquet",
+        "wellbore",
+    ),
+    "eor_hydrocarbon_types": _dataset("df_eor_mv_eor_hydrobarbtypecodes.parquet", "wellbore"),
+    "eor_operation_codes": _dataset("df_eor_mv_eor_operationcodes.parquet", "wellbore"),
+    "eor_perf": _dataset("df_eor_mv_eor_perf_intervals.parquet", "wellbore"),
+    "apd_main": _dataset(
+        "df_apd_main.parquet",
+        "applications",
+        ("SN_APD", "API_WELL_NUMBER"),
+        required=True,
+    ),
+    "apd_main_prop": _dataset("df_apd_main_prop.parquet", "applications"),
+    "apd_attachments": _dataset("df_apd_attachments.parquet", "applications"),
+    "apd_geologic": _dataset("df_apd_geologic.parquet", "applications"),
+    "apd_questions": _dataset("df_apd_questions.parquet", "applications"),
+    "apd_question_responses": _dataset("df_apd_question_responses.parquet", "applications"),
+    "apd_casing_intervals": _dataset(
+        "df_apd_casing_intervals.parquet",
+        "casing",
+        ("SN_APD_FK", "SN_APD_CSG_INTV"),
+        required=True,
+    ),
+    "apd_casing_sections": _dataset(
+        "df_apd_casing_sectons.parquet",
+        "casing",
+        ("SN_APD_CSNG_INTV_FK",),
+        required=True,
+    ),
+    "apm_applications": _dataset("df_apm_applications.parquet", "applications"),
+    "apm_events": _dataset("df_apm_events.parquet", "applications"),
+    "apm_main_prop_narrative": _dataset(
+        "df_apm_main_prop_narrative.parquet",
+        "applications",
+    ),
+    "apm_preventers": _dataset("df_apm_preventers.parquet", "applications"),
+    "apm_questions": _dataset("df_apm_questions.parquet", "applications"),
+    "apm_question_responses": _dataset("df_apm_question_responses.parquet", "applications"),
+    "apm_resubmittals": _dataset("df_apm_resubmittals.parquet", "applications"),
+    "apm_suboperations": _dataset("df_apm_suboperations.parquet", "applications"),
+    "apm_verbals": _dataset("df_apm_verbals.parquet", "applications"),
+    "application_attachments": _dataset("df_application_attachments.parquet", "documents"),
+    "open_hole_runs": _dataset("df_open_hole_runs.parquet", "logging"),
+    "open_hole_tools": _dataset("df_open_hole_tools.parquet", "logging"),
+    "attachments": _dataset(
+        "df_apd_apm_att.parquet",
+        "documents",
+        ("API_WELL_NUMBER", "ATT_NAME", "Source"),
+        required=True,
+    ),
+    "frs": _dataset(
+        "df_frs_files_list.parquet",
+        "documents",
+        ("API", "DOC_ID"),
+        required=True,
+    ),
+    "asset_approvals": _dataset("df_asset_approval_events.parquet", "approvals"),
+    "structures": _dataset(
+        "df_gom_structure.parquet",
+        "platforms",
+        ("AREA_CODE", "BLOCK_NUMBER", "COMPLEX_ID_NUM", "STRUCTURE_NUMBER"),
+        required=True,
+    ),
+    "platform_approvals": _dataset("df_platform_approvals.parquet", "platforms"),
+    "platform_removals": _dataset("df_platform_structure_removals.parquet", "platforms"),
+    "pipeline_permit_segments": _dataset("df_pipeline_permit_segments.parquet", "pipelines"),
+    "pipeline_submittals": _dataset("df_pipeline_submittals.parquet", "pipelines"),
+    "decom_estimates": _dataset("df_mv_decom_cost_estimates.parquet", "decommissioning"),
+    "decom_inst_pipe": _dataset("df_mv_decom_cost_inst_pipe.parquet", "decommissioning"),
+    "decom_inst_plat": _dataset("df_mv_decom_cost_inst_plat.parquet", "decommissioning"),
+    "decom_prop_pipe": _dataset("df_mv_decom_cost_prop_pipe.parquet", "decommissioning"),
+    "decom_prop_plat": _dataset("df_mv_decom_cost_prop_plat.parquet", "decommissioning"),
+    "decom_prop_well": _dataset("df_mv_decom_cost_prop_well.parquet", "decommissioning"),
+    "decom_spud_well": _dataset("df_mv_decom_cost_spud_well.parquet", "decommissioning"),
+    "decom_totals": _dataset("df_mv_decom_cost_totals.parquet", "decommissioning"),
+    "lease_data": _dataset(
+        "df_lease_data.parquet",
+        "leases",
+        ("LEASE_NUMBER",),
+        required=True,
+    ),
+    "lease_list": _dataset("df_lease_list.parquet", "leases"),
+    "lease_owner": _dataset("df_lease_owner.parquet", "leases"),
+    "lease_owner_designated_operator": _dataset(
+        "df_lease_owner_designated_operator.parquet",
+        "leases",
+    ),
+    "lease_owner_remarks": _dataset("df_lease_owner_remarks.parquet", "leases"),
+    "company_all": _dataset(
+        "df_company_all.parquet",
+        "companies",
+        ("MMS_COMPANY_NUM", "BUS_ASC_NAME"),
+        required=True,
+    ),
+}
 
 DATASETS = {
-    "boreholes": "df_boreholes.parquet",
-    "production": "df_gom_production.parquet",
-    "war_main": "df_WAR_main.parquet",
-    "war_text": "df_WAR.parquet",
-    "war_tubular": "df_mv_war_tubular_summaries.parquet",
-    "war_tubular_prop": "df_mv_war_tubular_summaries_prop.parquet",
-    "points": "df_points.parquet",
-    "azimuth": "df_azimuth.parquet",
-    "wellpath_metrics": "df_wellpath_metrics.parquet",
-    "bhp": "df_bhp_survey.parquet",
-    "eor_main": "df_eor_mv_eor_mainquery.parquet",
-    "eor_geomarkers": "df_eor_mv_eor_geomarkers.parquet",
-    "eor_completions": "df_eor_mv_eor_completions.parquet",
-    "eor_completions_prop": "df_eor_mv_eor_completionsprop.parquet",
-    "eor_perf": "df_eor_mv_eor_perf_intervals.parquet",
-    "apd_main": "df_apd_main.parquet",
-    "apd_casing_intervals": "df_apd_casing_intervals.parquet",
-    "apd_casing_sections": "df_apd_casing_sectons.parquet",
-    "open_hole_runs": "df_open_hole_runs.parquet",
-    "open_hole_tools": "df_open_hole_tools.parquet",
-    "attachments": "df_apd_apm_att.parquet",
-    "frs": "df_frs_files_list.parquet",
-    "decom_estimates": "df_mv_decom_cost_estimates.parquet",
-    "decom_inst_pipe": "df_mv_decom_cost_inst_pipe.parquet",
-    "decom_inst_plat": "df_mv_decom_cost_inst_plat.parquet",
-    "decom_prop_pipe": "df_mv_decom_cost_prop_pipe.parquet",
-    "decom_prop_plat": "df_mv_decom_cost_prop_plat.parquet",
-    "decom_prop_well": "df_mv_decom_cost_prop_well.parquet",
-    "decom_spud_well": "df_mv_decom_cost_spud_well.parquet",
-    "decom_totals": "df_mv_decom_cost_totals.parquet",
-    "lease_data": "df_lease_data.parquet",
-    "lease_list": "df_lease_list.parquet",
-    "lease_owner": "df_lease_owner.parquet",
-    "lease_owner_designated_operator": "df_lease_owner_designated_operator.parquet",
-    "lease_owner_remarks": "df_lease_owner_remarks.parquet",
-    "company_all": "df_company_all.parquet",
+    key: value["filename"]
+    for key, value in DATASET_CATALOG.items()
 }
 
 MIN_REQUIRED_DATASETS = [
-    "boreholes",
-    "war_main",
-    "war_text",
-    "points",
-    "azimuth",
-    "production",
-    "frs",
+    key
+    for key, value in DATASET_CATALOG.items()
+    if value["required"]
 ]
 
 INCIDENT_TERMS = {
@@ -298,6 +524,18 @@ DECOM_UNITS = {
     "WELL_PRP_DCOM_P70": "USD",
     "WELL_PRP_DCOM_P90": "USD",
     "WELL_PRP_DCOM_INDTR": "USD",
+    "SEGMENT_DCOM_P50": "USD",
+    "SEGMENT_DCOM_P70": "USD",
+    "SEGMENT_DCOM_P90": "USD",
+    "SEGMENT_DCOM_INDTR": "USD",
+    "PLT_REMOVAL_DCOM_P50": "USD",
+    "PLT_REMOVAL_DCOM_P70": "USD",
+    "PLT_REMOVAL_DCOM_P90": "USD",
+    "PLT_REMOVAL_DCOM_INDTR": "USD",
+    "PLT_SITE_CLRNC_DCOM_P50": "USD",
+    "PLT_SITE_CLRNC_DCOM_P70": "USD",
+    "PLT_SITE_CLRNC_DCOM_P90": "USD",
+    "PLT_SITE_CLRNC_DCOM_INDTR": "USD",
     "BLK_MAX_WTR_DPTH": "ft",
 }
 
