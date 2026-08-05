@@ -19,7 +19,7 @@ Put global options before the command: `--repo`, `--data-dir`, `--format json|ma
 
 - Unknown well, field, operator, or API: `wells search`.
 - Incident or phrase evidence: `evidence search`; inspect one result with `evidence detail`.
-- Known API: use direct `well summary|availability|relationships|ownership|production|trajectory|wellbore|casing|war|permits|files|applications|documents|timeline`; use `well dossier` for a full packet.
+- Known API: use direct `well summary|availability|relationships|ownership|production|trajectory|wellbore|casing|war|permits|files|applications|documents|timeline`; use `well batch <section> <api...>` for the same section across multiple wells; use `well dossier` for a full packet.
 - Field/lease research: `fields list|wells|compare|leases|lease-context`.
 - Production comparison: `production compare`.
 - Regulatory approvals: `approvals search|options`.
@@ -42,6 +42,8 @@ conda run -n cxstreamlit python $script --repo $repo well production <api>
 conda run -n cxstreamlit python $script --repo $repo well applications <api> --source APM --page-size 25
 conda run -n cxstreamlit python $script --repo $repo well documents <api> --query cement --source FRS
 conda run -n cxstreamlit python $script --repo $repo well timeline <api> --source WAR --date-from 2024-01-01
+conda run -n cxstreamlit python $script --repo $repo well batch documents <api-1> <api-2> --source FRS --page-size 25
+conda run -n cxstreamlit python $script --repo $repo well batch timeline <api-1> <api-2> --source WAR --page-size 25
 conda run -n cxstreamlit python $script --repo $repo --sample-limit 5 well dossier <api> --sections relationships,ownership,production,timeline
 conda run -n cxstreamlit python $script --repo $repo production compare <api-1> <api-2> --group-by well
 conda run -n cxstreamlit python $script --repo $repo fields wells <field>

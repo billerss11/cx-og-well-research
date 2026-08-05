@@ -73,6 +73,23 @@ MAP_FIELD_PARTS = (
     "proj_code",
 )
 
+BATCH_WELL_SECTIONS = (
+    "summary",
+    "availability",
+    "relationships",
+    "ownership",
+    "production",
+    "trajectory",
+    "wellbore",
+    "casing",
+    "war",
+    "permits",
+    "files",
+    "applications",
+    "documents",
+    "timeline",
+)
+
 
 def _bounded_int(minimum: int, maximum: int) -> Callable[[str], int]:
     def parse(value: str) -> int:
@@ -196,6 +213,19 @@ def build_parser() -> argparse.ArgumentParser:
     raw.add_argument("dataset", choices=sorted(RAW_DATASETS))
     raw.add_argument("--page", type=_bounded_int(1, 1_000_000), default=1)
     raw.add_argument("--page-size", type=_bounded_int(1, 100), default=25)
+    batch = well_commands.add_parser("batch")
+    batch.add_argument("section", choices=BATCH_WELL_SECTIONS)
+    batch.add_argument("api_well_numbers", nargs="+", type=_api)
+    batch.add_argument("--source")
+    batch.add_argument("--status")
+    batch.add_argument("--query")
+    batch.add_argument("--availability")
+    batch.add_argument("--category")
+    batch.add_argument("--date-from")
+    batch.add_argument("--date-to")
+    batch.add_argument("--has-documents", action=argparse.BooleanOptionalAction)
+    batch.add_argument("--page", type=_bounded_int(1, 1_000_000), default=1)
+    batch.add_argument("--page-size", type=_bounded_int(1, 100), default=50)
     for section in (
         "summary",
         "availability",
@@ -526,6 +556,44 @@ def _dossier_datasets(sections: list[str] | None) -> list[str]:
     return [key for key in DATASET_CATALOG if key in selected]
 
 
+def _batch_datasets(section: str) -> list[str]:
+    mapping = {
+        "summary": ["boreholes", "war_main"],
+        "availability": _dossier_datasets(None),
+        "relationships": ["boreholes", "company_all", "lease_data", "structures"],
+        "production": ["production", "boreholes"],
+        "applications": ["apd_main", "apm_applications", "application_attachments"],
+        "documents": ["frs", "application_attachments"],
+        "timeline": [
+            "apd_main",
+            "apm_events",
+            "war_main",
+            "eor_main",
+            "asset_approvals",
+            "boreholes",
+            "bhp",
+            "api_well_completions",
+            "api_changes",
+            "directional_surveys",
+            "well_potential_tests",
+            "decom_prop_well",
+            "decom_spud_well",
+        ],
+        "permits": ["apd_main", "application_attachments"],
+        "files": ["frs"],
+    }
+    if section in mapping:
+        return mapping[section]
+    dossier_section = {
+        "ownership": "ownership",
+        "trajectory": "trajectory",
+        "wellbore": "wellbore_evidence",
+        "casing": "casing",
+        "war": "war",
+    }.get(section)
+    return _dossier_datasets([dossier_section]) if dossier_section else ["boreholes"]
+
+
 def run(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
     repo = repo_root_from(args.repo)
     data_dir = (args.data_dir or repo / "data").resolve()
@@ -734,6 +802,65 @@ def run(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
             source_family=DATASET_CATALOG[key]["family"],
             join_identifier="API well number or normalized source relationship",
             warnings=warnings,
+        ), 0
+
+    if command == "well.batch":
+        values = _api_values(args.api_well_numbers)
+        if len(values) > 100:
+            raise ValueError("well batch accepts no more than 100 API well numbers")
+        results = []
+        warnings: list[str] = []
+        for api_well_number in values:
+            child_values = vars(args).copy()
+            child_values["action"] = args.section
+            child_values["api_well_number"] = api_well_number
+            child_args = argparse.Namespace(**child_values)
+            child_result, child_status = run(child_args)
+            if child_status != 0:
+                raise ResearchDataError(
+                    f"{args.section} failed for {api_well_number}"
+                )
+            child_warnings = child_result.get("warnings", [])
+            warnings.extend(
+                f"{api_well_number}: {warning}"
+                for warning in child_warnings
+            )
+            results.append(
+                {
+                    "api_well_number": api_well_number,
+                    "data": child_result["data"],
+                    "warnings": child_warnings,
+                }
+            )
+        data = {
+            "section": args.section,
+            "api_well_numbers": values,
+            "result_count": len(results),
+            "results": results,
+        }
+        return _envelope(
+            command,
+            {
+                "section": args.section,
+                "api_well_numbers": values,
+                "page": args.page,
+                "page_size": args.page_size,
+                "source": args.source,
+                "status": args.status,
+                "query": args.query,
+                "availability": args.availability,
+                "category": args.category,
+                "date_from": args.date_from,
+                "date_to": args.date_to,
+                "has_documents": args.has_documents,
+                "sample_limit": args.sample_limit,
+            },
+            data,
+            data_dir=data_dir,
+            datasets=_batch_datasets(args.section),
+            source_family="BSEE sources used by the selected multi-well section",
+            join_identifier="API well number plus source identifiers",
+            warnings=list(dict.fromkeys(warnings)),
         ), 0
 
     if command == "well.summary":

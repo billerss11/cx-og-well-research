@@ -95,6 +95,7 @@ def assert_no_map_keys(value):
         (["well", "documents", "608044019701", "--page-size", "1"], "well.documents"),
         (["well", "timeline", "608044019701", "--page-size", "1"], "well.timeline"),
         (["well", "timeline-detail", "608044019701", "WAR:-419928"], "well.timeline-detail"),
+        (["well", "batch", "documents", "608044019701", "608054000500", "--page-size", "1"], "well.batch"),
         (["fields", "list"], "fields.list"),
         (["fields", "compare", "AC336"], "fields.compare"),
         (["fields", "wells", "AC336"], "fields.wells"),
@@ -147,6 +148,34 @@ def test_well_search_accepts_structured_filters():
     assert all(
         "renaissance" in row["Operator"].casefold()
         for row in result["data"]["rows"]
+    )
+
+
+def test_batch_well_section_returns_one_result_per_api():
+    completed = run_cli(
+        [
+            "well",
+            "batch",
+            "timeline",
+            "608044019701",
+            "608054000500",
+            "--source",
+            "WAR",
+            "--page-size",
+            "1",
+        ]
+    )
+    assert completed.returncode == 0
+    result = json.loads(completed.stdout)
+    assert result["data"]["section"] == "timeline"
+    assert result["data"]["api_well_numbers"] == [
+        "608044019701",
+        "608054000500",
+    ]
+    assert result["data"]["result_count"] == 2
+    assert all(
+        item["data"]["page_size"] == 1
+        for item in result["data"]["results"]
     )
 
 
