@@ -41,6 +41,11 @@ from well_research_current import (
     search_pipelines,
     search_platforms,
     search_wells,
+    well_applications_page,
+    well_documents_page,
+    well_relationships,
+    well_timeline_event,
+    well_timeline_page,
 )
 from well_research_decom import build_decom_research
 from well_research_evidence import build_field_audit
@@ -125,6 +130,13 @@ def build_parser() -> argparse.ArgumentParser:
     wells_commands = wells.add_subparsers(dest="action", required=True)
     wells_search = wells_commands.add_parser("search")
     wells_search.add_argument("query", nargs="?", default="")
+    wells_search.add_argument("--operator")
+    wells_search.add_argument("--field")
+    wells_search.add_argument("--status")
+    wells_search.add_argument("--area")
+    wells_search.add_argument("--block")
+    wells_search.add_argument("--platform")
+    wells_search.add_argument("--lease")
     _common_search(wells_search)
     wells_search.add_argument(
         "--sort-by",
@@ -184,6 +196,46 @@ def build_parser() -> argparse.ArgumentParser:
     raw.add_argument("dataset", choices=sorted(RAW_DATASETS))
     raw.add_argument("--page", type=_bounded_int(1, 1_000_000), default=1)
     raw.add_argument("--page-size", type=_bounded_int(1, 100), default=25)
+    for section in (
+        "summary",
+        "availability",
+        "relationships",
+        "ownership",
+        "production",
+        "trajectory",
+        "wellbore",
+        "casing",
+        "war",
+        "permits",
+        "files",
+    ):
+        section_parser = well_commands.add_parser(section)
+        section_parser.add_argument("api_well_number", type=_api)
+    applications_parser = well_commands.add_parser("applications")
+    applications_parser.add_argument("api_well_number", type=_api)
+    applications_parser.add_argument("--source")
+    applications_parser.add_argument("--status")
+    applications_parser.add_argument("--page", type=_bounded_int(1, 1_000_000), default=1)
+    applications_parser.add_argument("--page-size", type=_bounded_int(1, 100), default=50)
+    documents_parser = well_commands.add_parser("documents")
+    documents_parser.add_argument("api_well_number", type=_api)
+    documents_parser.add_argument("--source")
+    documents_parser.add_argument("--query")
+    documents_parser.add_argument("--availability")
+    documents_parser.add_argument("--page", type=_bounded_int(1, 1_000_000), default=1)
+    documents_parser.add_argument("--page-size", type=_bounded_int(1, 100), default=50)
+    timeline_parser = well_commands.add_parser("timeline")
+    timeline_parser.add_argument("api_well_number", type=_api)
+    timeline_parser.add_argument("--source")
+    timeline_parser.add_argument("--category")
+    timeline_parser.add_argument("--date-from")
+    timeline_parser.add_argument("--date-to")
+    timeline_parser.add_argument("--has-documents", action=argparse.BooleanOptionalAction)
+    timeline_parser.add_argument("--page", type=_bounded_int(1, 1_000_000), default=1)
+    timeline_parser.add_argument("--page-size", type=_bounded_int(1, 100), default=50)
+    timeline_detail = well_commands.add_parser("timeline-detail")
+    timeline_detail.add_argument("api_well_number", type=_api)
+    timeline_detail.add_argument("event_id")
 
     fields = commands.add_parser("fields")
     fields_commands = fields.add_subparsers(dest="action", required=True)
@@ -191,8 +243,12 @@ def build_parser() -> argparse.ArgumentParser:
     fields_compare = fields_commands.add_parser("compare")
     fields_compare.add_argument("fields", nargs="+")
     fields_compare.add_argument("--audit", action="store_true")
+    fields_wells = fields_commands.add_parser("wells")
+    fields_wells.add_argument("fields", nargs="+")
     fields_leases = fields_commands.add_parser("leases")
     fields_leases.add_argument("fields", nargs="+")
+    fields_lease_context = fields_commands.add_parser("lease-context")
+    fields_lease_context.add_argument("fields", nargs="+")
 
     production = commands.add_parser("production")
     production_commands = production.add_subparsers(dest="action", required=True)
@@ -499,9 +555,25 @@ def run(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
             match_mode=args.match_mode,
             threshold=args.threshold,
             partial=args.partial,
+            filters={
+                "operator": args.operator,
+                "field": args.field,
+                "status": args.status,
+                "area": args.area,
+                "block": args.block,
+                "platform": args.platform,
+                "lease": args.lease,
+            },
         )
         query = {
             "q": args.query,
+            "operator": args.operator,
+            "field": args.field,
+            "status": args.status,
+            "area": args.area,
+            "block": args.block,
+            "platform": args.platform,
+            "lease": args.lease,
             "page": args.page,
             "page_size": args.page_size,
             "sort_by": args.sort_by,
@@ -664,6 +736,267 @@ def run(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
             warnings=warnings,
         ), 0
 
+    if command == "well.summary":
+        dossier_data = build_dossier(
+            data_dir,
+            repo,
+            args.api_well_number,
+            args.sample_limit,
+            sections=["relationships"],
+        )
+        data = {
+            "api_well_number": args.api_well_number,
+            "identity": dossier_data["identity"],
+        }
+        return _envelope(
+            command,
+            {"api_well_number": args.api_well_number},
+            data,
+            data_dir=data_dir,
+            datasets=["boreholes", "war_main"],
+            source_family="BSEE Borehole Raw Data and Well Activity Reports",
+            join_identifier="API_WELL_NUMBER",
+        ), 0
+
+    if command == "well.availability":
+        dossier_data = build_dossier(
+            data_dir,
+            repo,
+            args.api_well_number,
+            args.sample_limit,
+        )
+        data = {
+            "api_well_number": args.api_well_number,
+            "availability": dossier_data["availability"],
+        }
+        return _envelope(
+            command,
+            {"api_well_number": args.api_well_number},
+            data,
+            data_dir=data_dir,
+            datasets=_dossier_datasets(None),
+            source_family="BSEE well workspace availability index",
+            join_identifier="API well number plus section source identifiers",
+            warnings=_section_warnings(data),
+        ), 0
+
+    if command == "well.relationships":
+        data = well_relationships(data_dir, args.api_well_number, args.sample_limit)
+        return _envelope(
+            command,
+            {"api_well_number": args.api_well_number},
+            data,
+            data_dir=data_dir,
+            datasets=["boreholes", "company_all", "lease_data", "structures"],
+            source_family="BSEE Borehole, Company, Leasing, and Platform Structure Data",
+            join_identifier="API_WELL_NUMBER; company name; lease number; surface location",
+            warnings=_section_warnings(data),
+            units={"platform.water_depth_ft": "ft"},
+        ), 0
+
+    if command == "well.production":
+        data = production_comparison(
+            data_dir,
+            [args.api_well_number],
+            "well",
+            args.sample_limit,
+        )
+        return _envelope(
+            command,
+            {"api_well_number": args.api_well_number},
+            data,
+            data_dir=data_dir,
+            datasets=["production", "boreholes"],
+            source_family="BSEE OGOR-A production data",
+            join_identifier="Api Well Number",
+            units={
+                "oil_bbl": "bbl",
+                "gas_mcf": "Mcf",
+                "water_bbl": "bbl",
+                "oil_bpd": "bbl/day",
+                "gas_mcfpd": "Mcf/day",
+                "water_bpd": "bbl/day",
+            },
+        ), 0
+
+    if command in {
+        "well.ownership",
+        "well.trajectory",
+        "well.wellbore",
+        "well.casing",
+        "well.war",
+    }:
+        section_name = {
+            "well.ownership": "ownership",
+            "well.trajectory": "trajectory",
+            "well.wellbore": "wellbore_evidence",
+            "well.casing": "casing",
+            "well.war": "war",
+        }[command]
+        dossier_data = build_dossier(
+            data_dir,
+            repo,
+            args.api_well_number,
+            args.sample_limit,
+            sections=[section_name],
+        )
+        data = dossier_data["sections"][section_name]
+        return _envelope(
+            command,
+            {
+                "api_well_number": args.api_well_number,
+                "sample_limit": args.sample_limit,
+            },
+            data,
+            data_dir=data_dir,
+            datasets=_dossier_datasets([section_name]),
+            source_family="BSEE sources used by the selected well section",
+            join_identifier="API well number plus source serial identifiers",
+            warnings=_section_warnings(data),
+        ), 0
+
+    if command == "well.applications":
+        data = well_applications_page(
+            data_dir,
+            args.api_well_number,
+            page=args.page,
+            page_size=args.page_size,
+            source=args.source,
+            status=args.status,
+        )
+        return _envelope(
+            command,
+            vars(args),
+            data,
+            data_dir=data_dir,
+            datasets=["apd_main", "apm_applications", "application_attachments"],
+            source_family="BSEE APD and eWell APM applications",
+            join_identifier="API_WELL_NUMBER",
+            warnings=data.get("warnings", []),
+        ), 0
+
+    if command == "well.documents":
+        data = well_documents_page(
+            data_dir,
+            repo,
+            args.api_well_number,
+            page=args.page,
+            page_size=args.page_size,
+            source=args.source,
+            query=args.query,
+            availability=args.availability,
+        )
+        return _envelope(
+            command,
+            vars(args),
+            data,
+            data_dir=data_dir,
+            datasets=["frs", "application_attachments"],
+            source_family="BSEE APD/APM attachment metadata and FRS well file inventory",
+            join_identifier="API_WELL_NUMBER / API",
+            warnings=data.get("warnings", []),
+        ), 0
+
+    if command == "well.timeline":
+        data = well_timeline_page(
+            data_dir,
+            args.api_well_number,
+            page=args.page,
+            page_size=args.page_size,
+            source=args.source,
+            category=args.category,
+            date_from=args.date_from,
+            date_to=args.date_to,
+            has_documents=args.has_documents,
+        )
+        return _envelope(
+            command,
+            vars(args),
+            data,
+            data_dir=data_dir,
+            datasets=[
+                "apd_main",
+                "apm_events",
+                "war_main",
+                "eor_main",
+                "asset_approvals",
+                "boreholes",
+                "bhp",
+                "api_well_completions",
+                "api_changes",
+                "directional_surveys",
+                "well_potential_tests",
+                "decom_prop_well",
+                "decom_spud_well",
+            ],
+            source_family="BSEE directly well-linked dated records",
+            join_identifier="Exact normalized API well number",
+            warnings=data.get("warnings", []),
+        ), 0
+
+    if command == "well.timeline-detail":
+        data = well_timeline_event(
+            data_dir,
+            args.api_well_number,
+            args.event_id,
+        )
+        return _envelope(
+            command,
+            vars(args),
+            data,
+            data_dir=data_dir,
+            datasets=[
+                "apd_main",
+                "apm_events",
+                "war_main",
+                "eor_main",
+                "asset_approvals",
+                "boreholes",
+            ],
+            source_family="BSEE directly well-linked dated records",
+            join_identifier="Exact API well number and event identifier",
+            warnings=data.get("warnings", []),
+        ), 0
+
+    if command == "well.permits":
+        data = well_applications_page(
+            data_dir,
+            args.api_well_number,
+            page=1,
+            page_size=args.sample_limit,
+            source="APD",
+        )
+        return _envelope(
+            command,
+            {"api_well_number": args.api_well_number},
+            data,
+            data_dir=data_dir,
+            datasets=["apd_main", "application_attachments"],
+            source_family="BSEE APD permit and attachment data",
+            join_identifier="API_WELL_NUMBER",
+            warnings=data.get("warnings", []),
+        ), 0
+
+    if command == "well.files":
+        data = well_documents_page(
+            data_dir,
+            repo,
+            args.api_well_number,
+            page=1,
+            page_size=args.sample_limit,
+            source="FRS",
+        )
+        return _envelope(
+            command,
+            {"api_well_number": args.api_well_number},
+            data,
+            data_dir=data_dir,
+            datasets=["frs"],
+            source_family="BSEE FRS Well File Inventory",
+            join_identifier="API",
+            warnings=data.get("warnings", []),
+        ), 0
+
     if command == "fields.list":
         data = field_options(data_dir)
         return _envelope(
@@ -700,7 +1033,25 @@ def run(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
             },
         ), 0
 
-    if command == "fields.leases":
+    if command == "fields.wells":
+        data = compare_fields(data_dir, args.fields, args.sample_limit)
+        return _envelope(
+            command,
+            {"fields": args.fields},
+            data,
+            data_dir=data_dir,
+            datasets=["boreholes", "azimuth", "structures"],
+            source_family="BSEE field, well, trajectory, and structure data",
+            join_identifier="FIELD and API_WELL_NUMBER",
+            units={
+                "water_depth_ft": "ft",
+                "first_md_ft": "ft",
+                "final_md_ft": "ft",
+                "max_tvd_ft": "ft",
+            },
+        ), 0
+
+    if command in {"fields.leases", "fields.lease-context"}:
         data = field_leases(data_dir, args.fields, args.sample_limit)
         return _envelope(
             command,

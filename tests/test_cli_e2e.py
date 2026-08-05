@@ -80,9 +80,26 @@ def assert_no_map_keys(value):
         (["evidence", "detail", "608044019701", "stuck pipe", "--page-size", "1"], "evidence.detail"),
         (["well", "dossier", "608054000500", "--sections", "relationships"], "well.dossier"),
         (["well", "raw", "608054000500", "boreholes", "--page-size", "1"], "well.raw"),
+        (["well", "summary", "608054000500"], "well.summary"),
+        (["well", "availability", "608054000500"], "well.availability"),
+        (["well", "relationships", "608054000500"], "well.relationships"),
+        (["well", "ownership", "608054000500"], "well.ownership"),
+        (["well", "production", "608054000500"], "well.production"),
+        (["well", "trajectory", "608054000500"], "well.trajectory"),
+        (["well", "wellbore", "608054000500"], "well.wellbore"),
+        (["well", "casing", "608054000500"], "well.casing"),
+        (["well", "war", "608054000500"], "well.war"),
+        (["well", "permits", "608054000500"], "well.permits"),
+        (["well", "files", "608054000500"], "well.files"),
+        (["well", "applications", "608044019701", "--page-size", "1"], "well.applications"),
+        (["well", "documents", "608044019701", "--page-size", "1"], "well.documents"),
+        (["well", "timeline", "608044019701", "--page-size", "1"], "well.timeline"),
+        (["well", "timeline-detail", "608044019701", "WAR:-419928"], "well.timeline-detail"),
         (["fields", "list"], "fields.list"),
         (["fields", "compare", "AC336"], "fields.compare"),
+        (["fields", "wells", "AC336"], "fields.wells"),
         (["fields", "leases", "AC336"], "fields.leases"),
+        (["fields", "lease-context", "AC336"], "fields.lease-context"),
         (["production", "compare", "608054000500", "608054001200"], "production.compare"),
         (["approvals", "search", "--asset-type", "well", "--page-size", "1"], "approvals.search"),
         (["approvals", "options"], "approvals.options"),
@@ -118,6 +135,19 @@ def test_empty_search_is_successful():
     )
     assert completed.returncode == 0
     assert json.loads(completed.stdout)["data"]["total_count"] == 0
+
+
+def test_well_search_accepts_structured_filters():
+    completed = run_cli(
+        ["wells", "search", "--operator", "Renaissance", "--page-size", "3"]
+    )
+    assert completed.returncode == 0
+    result = json.loads(completed.stdout)
+    assert result["data"]["total_count"] > 0
+    assert all(
+        "renaissance" in row["Operator"].casefold()
+        for row in result["data"]["rows"]
+    )
 
 
 def test_incident_preset_hands_off_from_search_to_detail():

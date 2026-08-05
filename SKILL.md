@@ -19,8 +19,8 @@ Put global options before the command: `--repo`, `--data-dir`, `--format json|ma
 
 - Unknown well, field, operator, or API: `wells search`.
 - Incident or phrase evidence: `evidence search`; inspect one result with `evidence detail`.
-- Known API: `well dossier`; use `--sections` only when the full dossier is unnecessary.
-- Field/lease research: `fields list|compare|leases`.
+- Known API: use direct `well summary|availability|relationships|ownership|production|trajectory|wellbore|casing|war|permits|files|applications|documents|timeline`; use `well dossier` for a full packet.
+- Field/lease research: `fields list|wells|compare|leases|lease-context`.
 - Production comparison: `production compare`.
 - Regulatory approvals: `approvals search|options`.
 - Platform or pipeline research: `platforms search|detail` or `pipelines search|detail`.
@@ -33,12 +33,19 @@ Put global options before the command: `--repo`, `--data-dir`, `--format json|ma
 
 ```powershell
 conda run -n cxstreamlit python $script --repo $repo wells search "MADISON"
+conda run -n cxstreamlit python $script --repo $repo wells search --operator "<operator>" --field "<field>" --lease <lease>
 conda run -n cxstreamlit python $script --repo $repo wells search "MADSN" --match-mode fuzzy --threshold 75
 conda run -n cxstreamlit python $script --repo $repo evidence search --incident stuck-pipe
 conda run -n cxstreamlit python $script --repo $repo evidence detail <api> --incident stuck-pipe
 conda run -n cxstreamlit python $script --repo $repo well dossier <api>
+conda run -n cxstreamlit python $script --repo $repo well production <api>
+conda run -n cxstreamlit python $script --repo $repo well applications <api> --source APM --page-size 25
+conda run -n cxstreamlit python $script --repo $repo well documents <api> --query cement --source FRS
+conda run -n cxstreamlit python $script --repo $repo well timeline <api> --source WAR --date-from 2024-01-01
 conda run -n cxstreamlit python $script --repo $repo --sample-limit 5 well dossier <api> --sections relationships,ownership,production,timeline
 conda run -n cxstreamlit python $script --repo $repo production compare <api-1> <api-2> --group-by well
+conda run -n cxstreamlit python $script --repo $repo fields wells <field>
+conda run -n cxstreamlit python $script --repo $repo fields lease-context <field>
 conda run -n cxstreamlit python $script --repo $repo approvals search --asset-type well --asset-identifier <api>
 conda run -n cxstreamlit python $script --repo $repo platforms search --company "<operator>"
 conda run -n cxstreamlit python $script --repo $repo pipelines search --status <code> --product <code>

@@ -48,6 +48,59 @@ SEARCH_SORT_FIELDS = {
     "status": '"Status"',
 }
 
+def _structured_filter_conditions(
+    filters: dict[str, str | None] | None,
+) -> tuple[list[str], list[str]]:
+    active = {
+        key: value.strip()
+        for key, value in (filters or {}).items()
+        if value and value.strip()
+    }
+    conditions: list[str] = []
+    parameters: list[str] = []
+    for key, expression in (
+        ("operator", "b.COMPANY_NAME"),
+        (
+            "field",
+            "COALESCE(NULLIF(b.\"OPERATOR FIELD\", ''), NULLIF(b.FIELD, ''), b.BOTM_FLD_NAME_CD)",
+        ),
+        ("platform", "platforms.platform"),
+    ):
+        value = active.get(key)
+        if value:
+            conditions.append(
+                f"STRPOS(LOWER(COALESCE({expression}, '')), LOWER(?)) > 0"
+            )
+            parameters.append(value)
+    status = active.get("status")
+    if status:
+        conditions.append(
+            "LOWER(TRIM(COALESCE(b.BOREHOLE_STAT_CD, ''))) = LOWER(TRIM(?))"
+        )
+        parameters.append(status)
+    for key, expression in (
+        ("area", "COALESCE(NULLIF(b.AREA, ''), b.BOTM_AREA_CODE)"),
+        ("block", "COALESCE(NULLIF(b.BLOCK, ''), b.BOTM_BLOCK_NUMBER)"),
+        ("lease", "COALESCE(NULLIF(b.LEASE, ''), b.BOTM_LEASE_NUMBER)"),
+    ):
+        value = active.get(key)
+        if value:
+            conditions.append(
+                "REGEXP_REPLACE("
+                f"UPPER(TRIM(COALESCE({expression}, ''))), "
+                "'[^A-Z0-9]', '', 'g'"
+                ") = REGEXP_REPLACE("
+                "UPPER(TRIM(?)), '[^A-Z0-9]', '', 'g'"
+                ")"
+            )
+            parameters.append(value)
+    return conditions, parameters
+
+
+def _where(conditions: list[str]) -> str:
+    return "WHERE " + " AND ".join(conditions) if conditions else ""
+
+
 RAW_DATASETS = {
     "boreholes": ("boreholes", "API_WELL_NUMBER"),
     "war_main": ("war_main", "API_WELL_NUMBER"),
@@ -297,6 +350,8 @@ def _well_projection(data_dir: Path, where_sql: str = "") -> str:
             platforms.platform_search AS "_platform_search",
             b.BOREHOLE_STAT_CD AS "Status",
             b.WATER_DEPTH AS "Water depth (ft)",
+            b.SURF_LATITUDE AS "Surface latitude",
+            b.SURF_LONGITUDE AS "Surface longitude",
             b.WELL_NAME AS "_base_well_name",
             b.WELL_NAME_SUFFIX AS "_well_name_suffix",
             b.FIELD AS "_field_name",
@@ -364,16 +419,19 @@ def search_wells(
     match_mode: str = "exact",
     threshold: int = 90,
     partial: bool = True,
+    filters: dict[str, str | None] | None = None,
 ) -> dict[str, Any]:
     for key in ("boreholes", "structures", "war_main", "war_text", "attachments"):
         _require(data_dir, key)
     normalized = query.strip()
+    filter_conditions, filter_parameters = _structured_filter_conditions(filters)
+    valid_api_condition = "b.API_WELL_NUMBER IS NOT NULL AND TRIM(b.API_WELL_NUMBER) <> ''"
     exact_api = _exact_api_values(normalized)
     if not normalized:
         return _paged_wells(
             data_dir,
-            "WHERE b.API_WELL_NUMBER IS NOT NULL AND TRIM(b.API_WELL_NUMBER) <> ''",
-            [],
+            _where([valid_api_condition, *filter_conditions]),
+            filter_parameters,
             page=page,
             page_size=page_size,
             sort_by=sort_by,
@@ -383,8 +441,8 @@ def search_wells(
         placeholders = ", ".join("?" for _ in exact_api)
         return _paged_wells(
             data_dir,
-            f"WHERE TRIM(b.API_WELL_NUMBER) IN ({placeholders})",
-            exact_api,
+            _where([f"TRIM(b.API_WELL_NUMBER) IN ({placeholders})", *filter_conditions]),
+            [*exact_api, *filter_parameters],
             page=page,
             page_size=page_size,
             sort_by=sort_by,
@@ -455,8 +513,8 @@ def search_wells(
         placeholders = ", ".join("?" for _ in values)
         return _paged_wells(
             data_dir,
-            f"WHERE TRIM(b.API_WELL_NUMBER) IN ({placeholders})",
-            values,
+            _where([f"TRIM(b.API_WELL_NUMBER) IN ({placeholders})", *filter_conditions]),
+            [*values, *filter_parameters],
             page=page,
             page_size=page_size,
             sort_by=sort_by,
@@ -490,15 +548,17 @@ def search_wells(
             f"WHERE {attachment_conditions})",
         ]
     )
-    where = (
-        "WHERE b.API_WELL_NUMBER IS NOT NULL "
-        "AND TRIM(b.API_WELL_NUMBER) <> '' "
-        f"AND ({' OR '.join(conditions)})"
+    where = _where(
+        [
+            valid_api_condition,
+            f"({' OR '.join(conditions)})",
+            *filter_conditions,
+        ]
     )
     return _paged_wells(
         data_dir,
         where,
-        parameters,
+        [*parameters, *filter_parameters],
         page=page,
         page_size=page_size,
         sort_by=sort_by,
@@ -1140,20 +1200,27 @@ def search_approvals(
         parameters,
     )
     rows = _records(matched)
-    by_group: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    by_group: dict[tuple[str, int | None], list[dict[str, Any]]] = defaultdict(list)
     for row in rows:
-        by_group[str(row["approval_group_id"])].append(row)
-    group_ids = sorted(
+        source_row = row.get("source_row_number")
+        group_key = (
+            str(row["approval_group_id"]),
+            int(source_row) if source_row is not None else None,
+        )
+        by_group[group_key].append(row)
+    group_keys = sorted(
         by_group,
-        key=lambda key: (
-            max(str(row.get("event_date") or "") for row in by_group[key]),
-            key,
+        key=lambda group_key: (
+            max(str(row.get("event_date") or "") for row in by_group[group_key]),
+            group_key[0],
+            group_key[1] if group_key[1] is not None else -1,
         ),
         reverse=True,
     )
-    selected_ids = group_ids[(page - 1) * page_size : page * page_size]
-    linked_by_group: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    if selected_ids:
+    selected_keys = group_keys[(page - 1) * page_size : page * page_size]
+    linked_by_group: dict[tuple[str, int | None], list[dict[str, Any]]] = defaultdict(list)
+    if selected_keys:
+        selected_ids = sorted({group_id for group_id, _ in selected_keys})
         placeholders = ", ".join("?" for _ in selected_ids)
         linked = duckdb_df(
             f"""
@@ -1169,20 +1236,25 @@ def search_approvals(
             selected_ids,
         )
         for row in _records(linked):
-            linked_by_group[str(row["approval_group_id"])].append(row)
+            source_row = row.get("source_row_number")
+            group_key = (
+                str(row["approval_group_id"]),
+                int(source_row) if source_row is not None else None,
+            )
+            linked_by_group[group_key].append(row)
     matched_keys = {
         (row.get("approval_event_id"), row.get("source_row_number"))
         for row in rows
     }
     grouped = []
-    for group_id in selected_ids:
-        assets = linked_by_group.get(group_id, [])
+    for group_key in selected_keys:
+        assets = linked_by_group.get(group_key, [])
         if not assets:
             continue
         header = assets[0]
         grouped.append(
             {
-                "approval_group_id": group_id,
+                "approval_group_id": group_key[0],
                 "event_date": header.get("event_date"),
                 "business_process": header.get("business_process"),
                 "approval_type": header.get("approval_type"),
@@ -1213,7 +1285,7 @@ def search_approvals(
         "rows": grouped,
         "page": page,
         "page_size": page_size,
-        "total_count": len(group_ids),
+        "total_count": len(group_keys),
         "matching_asset_count": len(rows),
     }
 
@@ -1467,7 +1539,7 @@ def well_documents(
                 ) AS document_date,
                 NULL::VARCHAR AS operator_name,
                 'FRS' AS source_family,
-                'local_or_metadata_only' AS availability,
+                'inventory_only' AS availability,
                 CAST(FILE_SIZE AS DOUBLE) AS file_size_source,
                 CAST(LEASE AS VARCHAR) AS lease_number,
                 CAST(AREA AS VARCHAR) AS area,
@@ -1537,6 +1609,146 @@ def well_documents(
         "sample": rows,
         "warnings": warnings,
     }
+
+
+def _paged(rows: list[dict[str, Any]], page: int, page_size: int) -> dict[str, Any]:
+    offset = (page - 1) * page_size
+    return {
+        "rows": rows[offset : offset + page_size],
+        "page": page,
+        "page_size": page_size,
+        "total_count": len(rows),
+    }
+
+
+def well_applications_page(
+    data_dir: Path,
+    api_well_number: str,
+    *,
+    page: int = 1,
+    page_size: int = 50,
+    source: str | None = None,
+    status: str | None = None,
+) -> dict[str, Any]:
+    data = well_applications(data_dir, api_well_number, 100_000)
+    rows = list(data.get("sample", []))
+    if source:
+        source_key = source.casefold()
+        rows = [
+            row for row in rows
+            if str(row.get("source_family") or "").casefold() == source_key
+        ]
+    if status:
+        status_key = status.casefold()
+        rows = [
+            row for row in rows
+            if status_key in str(row.get("status_code") or "").casefold()
+            or status_key in str(row.get("application_type") or "").casefold()
+        ]
+    result = _paged(rows, page, page_size)
+    result["warnings"] = data.get("warnings", [])
+    return result
+
+
+def well_documents_page(
+    data_dir: Path,
+    repo: Path,
+    api_well_number: str,
+    *,
+    page: int = 1,
+    page_size: int = 50,
+    source: str | None = None,
+    query: str | None = None,
+    availability: str | None = None,
+) -> dict[str, Any]:
+    data = well_documents(data_dir, repo, api_well_number, 100_000)
+    rows = list(data.get("sample", []))
+    if source:
+        source_key = source.casefold()
+        rows = [
+            row for row in rows
+            if str(row.get("source_family") or "").casefold() == source_key
+        ]
+    if query:
+        query_key = query.casefold()
+        rows = [
+            row for row in rows
+            if query_key in " ".join(
+                str(row.get(field) or "")
+                for field in ("document_name", "business_category", "document_id")
+            ).casefold()
+        ]
+    if availability:
+        availability_key = availability.casefold()
+        rows = [
+            row for row in rows
+            if str(row.get("availability") or "").casefold() == availability_key
+        ]
+    result = _paged(rows, page, page_size)
+    result["warnings"] = data.get("warnings", [])
+    return result
+
+
+def well_timeline_page(
+    data_dir: Path,
+    api_well_number: str,
+    *,
+    page: int = 1,
+    page_size: int = 50,
+    source: str | None = None,
+    category: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    has_documents: bool | None = None,
+) -> dict[str, Any]:
+    data = well_timeline(data_dir, api_well_number, None, 100_000)
+    rows = list(data.get("sample", []))
+    if source:
+        source_key = source.casefold()
+        rows = [
+            row for row in rows
+            if str(row.get("source_family") or "").casefold() == source_key
+        ]
+    if category:
+        category_key = category.casefold()
+        rows = [
+            row for row in rows
+            if str(row.get("event_category") or "").casefold() == category_key
+        ]
+    if date_from:
+        from_date = pd.to_datetime(date_from, errors="raise").date()
+        rows = [
+            row for row in rows
+            if pd.to_datetime(row.get("event_date"), errors="coerce").date()
+            >= from_date
+        ]
+    if date_to:
+        to_date = pd.to_datetime(date_to, errors="raise").date()
+        rows = [
+            row for row in rows
+            if pd.to_datetime(row.get("event_date"), errors="coerce").date()
+            <= to_date
+        ]
+    if has_documents is True:
+        rows = [row for row in rows if int(row.get("document_count") or 0) > 0]
+    elif has_documents is False:
+        rows = [row for row in rows if int(row.get("document_count") or 0) == 0]
+    result = _paged(rows, page, page_size)
+    result["source_counts"] = data.get("source_counts", {})
+    result["warnings"] = data.get("warnings", [])
+    return result
+
+
+def well_timeline_event(
+    data_dir: Path,
+    api_well_number: str,
+    event_id: str,
+) -> dict[str, Any]:
+    data = well_timeline(data_dir, api_well_number, None, 100_000)
+    for row in data.get("sample", []):
+        if str(row.get("event_id")) == event_id:
+            return {"event": row, "warnings": data.get("warnings", [])}
+    return {"event": None, "warnings": data.get("warnings", [])}
 
 
 def well_timeline(
