@@ -48,7 +48,26 @@ from well_research_current import (
     well_timeline_page,
 )
 from well_research_decom import build_decom_research
+from well_research_decom_queries import asset_detail, authority_detail, authority_search
 from well_research_evidence import build_field_audit
+from well_research_queries import (
+    FILTER_OPTION_FIELDS,
+    casing_analysis,
+    casing_versions,
+    field_trajectory_comparison,
+    field_well_selection,
+    lease_activity,
+    trajectory_analysis,
+    war_report_text,
+    well_casing_page,
+    well_files_page,
+    well_filter_options,
+    well_permits_page,
+    well_suggestions,
+    well_summary,
+    well_war_page,
+    well_war_record,
+)
 
 
 SCHEMA_VERSION = 1
@@ -171,6 +190,13 @@ def build_parser() -> argparse.ArgumentParser:
         default="api_well_number",
     )
     wells_search.add_argument("--sort-direction", choices=["asc", "desc"], default="asc")
+    wells_suggestions = wells_commands.add_parser("suggestions")
+    wells_suggestions.add_argument("query")
+    wells_suggestions.add_argument("--limit", type=_bounded_int(1, 100), default=10)
+    wells_filter_options = wells_commands.add_parser("filter-options")
+    wells_filter_options.add_argument("field", choices=sorted(FILTER_OPTION_FIELDS))
+    wells_filter_options.add_argument("query", nargs="?", default="")
+    wells_filter_options.add_argument("--limit", type=_bounded_int(1, 100), default=20)
 
     evidence = commands.add_parser("evidence")
     evidence_commands = evidence.add_subparsers(dest="action", required=True)
@@ -228,19 +254,51 @@ def build_parser() -> argparse.ArgumentParser:
     batch.add_argument("--page-size", type=_bounded_int(1, 100), default=50)
     for section in (
         "summary",
+        "identity",
         "availability",
         "relationships",
         "ownership",
         "production",
         "trajectory",
         "wellbore",
-        "casing",
-        "war",
-        "permits",
-        "files",
     ):
         section_parser = well_commands.add_parser(section)
         section_parser.add_argument("api_well_number", type=_api)
+    trajectory_analysis_parser = well_commands.add_parser("trajectory-analysis")
+    trajectory_analysis_parser.add_argument("api_well_number", type=_api)
+    trajectory_analysis_parser.add_argument("--min-step", type=float, default=100.0)
+    casing_parser = well_commands.add_parser("casing")
+    casing_parser.add_argument("api_well_number", type=_api)
+    casing_parser.add_argument("--page", type=_bounded_int(1, 1_000_000), default=1)
+    casing_parser.add_argument("--page-size", type=_bounded_int(1, 100), default=50)
+    casing_versions_parser = well_commands.add_parser("casing-versions")
+    casing_versions_parser.add_argument("api_well_number", type=_api)
+    casing_analysis_parser = well_commands.add_parser("casing-analysis")
+    casing_analysis_parser.add_argument("api_well_number", type=_api)
+    casing_analysis_parser.add_argument("--source", choices=["apd", "war"], required=True)
+    casing_analysis_parser.add_argument("--version", type=_bounded_int(1, 10_000), default=1)
+    casing_analysis_parser.add_argument("--units", choices=["feet", "meters"], default="feet")
+    war_parser = well_commands.add_parser("war")
+    war_parser.add_argument("api_well_number", type=_api)
+    war_parser.add_argument("--page", type=_bounded_int(1, 1_000_000), default=1)
+    war_parser.add_argument("--page-size", type=_bounded_int(1, 100), default=50)
+    war_record_parser = well_commands.add_parser("war-record")
+    war_record_parser.add_argument("api_well_number", type=_api)
+    war_record_parser.add_argument("report_id")
+    war_text_parser = well_commands.add_parser("war-report-text")
+    war_text_parser.add_argument("api_well_number", type=_api)
+    war_text_parser.add_argument("--max-chars", type=_bounded_int(1, 10_000_000))
+    lease_activity_parser = well_commands.add_parser("lease-activity")
+    lease_activity_parser.add_argument("api_well_number", type=_api)
+    lease_activity_parser.add_argument("lease_number")
+    lease_activity_parser.add_argument("--page", type=_bounded_int(1, 1_000_000), default=1)
+    lease_activity_parser.add_argument("--page-size", type=_bounded_int(1, 100), default=50)
+    lease_activity_parser.add_argument("--include-administrative", action=argparse.BooleanOptionalAction, default=False)
+    for section in ("permits", "files"):
+        section_parser = well_commands.add_parser(section)
+        section_parser.add_argument("api_well_number", type=_api)
+        section_parser.add_argument("--page", type=_bounded_int(1, 1_000_000), default=1)
+        section_parser.add_argument("--page-size", type=_bounded_int(1, 100), default=50)
     applications_parser = well_commands.add_parser("applications")
     applications_parser.add_argument("api_well_number", type=_api)
     applications_parser.add_argument("--source")
@@ -275,6 +333,9 @@ def build_parser() -> argparse.ArgumentParser:
     fields_compare.add_argument("--audit", action="store_true")
     fields_wells = fields_commands.add_parser("wells")
     fields_wells.add_argument("fields", nargs="+")
+    fields_trajectory = fields_commands.add_parser("trajectory-comparison")
+    fields_trajectory.add_argument("fields", nargs="+")
+    fields_trajectory.add_argument("--api", dest="api_well_numbers", action="append", required=True, type=_api)
     fields_leases = fields_commands.add_parser("leases")
     fields_leases.add_argument("fields", nargs="+")
     fields_lease_context = fields_commands.add_parser("lease-context")
@@ -372,6 +433,23 @@ def build_parser() -> argparse.ArgumentParser:
         default="p90",
     )
     decom_search.add_argument("--pa-adjustment", choices=["Y", "N", "y", "n"])
+    decom_authorities = decommissioning_commands.add_parser("authorities")
+    decom_authorities.add_argument("--query")
+    decom_authorities.add_argument("--type", dest="authority_type", choices=["LSE", "ROW", "RUE"])
+    decom_authorities.add_argument("--area")
+    decom_authorities.add_argument("--block")
+    decom_authorities.add_argument("--page", type=_bounded_int(1, 1_000_000), default=1)
+    decom_authorities.add_argument("--page-size", type=_bounded_int(1, 100), default=50)
+    decom_authority = decommissioning_commands.add_parser("authority")
+    decom_authority.add_argument("authority_type", choices=["LSE", "ROW", "RUE"])
+    decom_authority.add_argument("authority_number")
+    decom_well = decommissioning_commands.add_parser("well")
+    decom_well.add_argument("api_well_number", type=_api)
+    decom_pipeline = decommissioning_commands.add_parser("pipeline")
+    decom_pipeline.add_argument("segment_number")
+    decom_platform = decommissioning_commands.add_parser("platform")
+    decom_platform.add_argument("complex_id")
+    decom_platform.add_argument("structure_number")
 
     tables = commands.add_parser("tables")
     table_commands = tables.add_subparsers(dest="action", required=True)
@@ -661,6 +739,31 @@ def run(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
             units={"Water depth (ft)": "ft"},
         ), 0
 
+    if command == "wells.suggestions":
+        data = well_suggestions(data_dir, args.query, args.limit)
+        return _envelope(
+            command,
+            {"q": args.query, "limit": args.limit},
+            data,
+            data_dir=data_dir,
+            datasets=["boreholes", "api_changes"],
+            source_family="BSEE borehole identity and API change data",
+            join_identifier="Current and previous API well numbers",
+        ), 0
+
+    if command == "wells.filter-options":
+        data = well_filter_options(data_dir, args.field, args.query, args.limit)
+        datasets = ["boreholes", "structures"] if args.field == "platform" else ["boreholes"]
+        return _envelope(
+            command,
+            {"field": args.field, "q": args.query, "limit": args.limit},
+            data,
+            data_dir=data_dir,
+            datasets=datasets,
+            source_family="BSEE well search attributes",
+            join_identifier="Distinct normalized filter values",
+        ), 0
+
     if command == "evidence.search":
         query_text = args.query or ""
         if args.incident:
@@ -863,18 +966,10 @@ def run(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
             warnings=list(dict.fromkeys(warnings)),
         ), 0
 
-    if command == "well.summary":
-        dossier_data = build_dossier(
-            data_dir,
-            repo,
-            args.api_well_number,
-            args.sample_limit,
-            sections=["relationships"],
-        )
-        data = {
-            "api_well_number": args.api_well_number,
-            "identity": dossier_data["identity"],
-        }
+    if command in {"well.summary", "well.identity"}:
+        data = well_summary(data_dir, args.api_well_number)
+        if data is None:
+            raise ResearchDataError(f"Well not found: {args.api_well_number}")
         return _envelope(
             command,
             {"api_well_number": args.api_well_number},
@@ -950,15 +1045,11 @@ def run(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
         "well.ownership",
         "well.trajectory",
         "well.wellbore",
-        "well.casing",
-        "well.war",
     }:
         section_name = {
             "well.ownership": "ownership",
             "well.trajectory": "trajectory",
             "well.wellbore": "wellbore_evidence",
-            "well.casing": "casing",
-            "well.war": "war",
         }[command]
         dossier_data = build_dossier(
             data_dir,
@@ -980,6 +1071,147 @@ def run(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
             source_family="BSEE sources used by the selected well section",
             join_identifier="API well number plus source serial identifiers",
             warnings=_section_warnings(data),
+        ), 0
+
+    if command == "well.trajectory-analysis":
+        data = trajectory_analysis(
+            data_dir,
+            args.api_well_number,
+            min_step=args.min_step,
+            limit=args.sample_limit,
+        )
+        return _envelope(
+            command,
+            {"api_well_number": args.api_well_number, "min_step": args.min_step},
+            data,
+            data_dir=data_dir,
+            datasets=["azimuth"],
+            source_family="BSEE directional survey data",
+            join_identifier="API Number",
+            units={"measured_depth": "ft", "DLS": "degrees/100 ft"},
+        ), 0
+
+    if command == "well.lease-activity":
+        data = lease_activity(
+            data_dir,
+            args.api_well_number,
+            args.lease_number,
+            page=args.page,
+            page_size=args.page_size,
+            include_administrative=args.include_administrative,
+        )
+        return _envelope(
+            command,
+            vars(args),
+            data,
+            data_dir=data_dir,
+            datasets=["boreholes", "lease_remarks", "lease_descriptions"],
+            source_family="BSEE lease remarks and legal descriptions",
+            join_identifier="Well-associated lease number",
+        ), 0
+
+    if command == "well.casing":
+        data = well_casing_page(
+            data_dir,
+            args.api_well_number,
+            args.page,
+            args.page_size,
+        )
+        return _envelope(
+            command,
+            vars(args),
+            data,
+            data_dir=data_dir,
+            datasets=["apd_main", "apd_casing_intervals", "apd_casing_sections"],
+            source_family="BSEE APD planned casing data",
+            join_identifier="API_WELL_NUMBER, SN_APD, and casing interval identifiers",
+        ), 0
+
+    if command == "well.casing-versions":
+        data = casing_versions(data_dir, args.api_well_number)
+        return _envelope(
+            command,
+            vars(args),
+            data,
+            data_dir=data_dir,
+            datasets=["apd_main", "apd_casing_intervals", "war_main", "war_tubular"],
+            source_family="BSEE APD and WAR casing versions",
+            join_identifier="API_WELL_NUMBER with SN_APD and SN_WAR",
+        ), 0
+
+    if command == "well.casing-analysis":
+        data = casing_analysis(
+            data_dir,
+            args.api_well_number,
+            args.source,
+            args.version,
+            args.units,
+        )
+        if data is None:
+            raise ResearchDataError(
+                f"Casing {args.source} version {args.version} was not found for {args.api_well_number}"
+            )
+        return _envelope(
+            command,
+            vars(args),
+            data,
+            data_dir=data_dir,
+            datasets=[
+                "apd_main",
+                "apd_casing_intervals",
+                "apd_casing_sections",
+                "war_main",
+                "war_tubular",
+                "war_tubular_prop",
+            ],
+            source_family="BSEE APD planned and WAR actual casing data",
+            join_identifier="API_WELL_NUMBER and selected casing record version",
+        ), 0
+
+    if command == "well.war":
+        data = well_war_page(
+            data_dir,
+            repo,
+            args.api_well_number,
+            args.page,
+            args.page_size,
+        )
+        return _envelope(
+            command,
+            vars(args),
+            data,
+            data_dir=data_dir,
+            datasets=["war_main", "war_text"],
+            source_family="BSEE Well Activity Reports",
+            join_identifier="API_WELL_NUMBER and SN_WAR",
+        ), 0
+
+    if command == "well.war-record":
+        data = well_war_record(data_dir, repo, args.api_well_number, args.report_id)
+        if data is None:
+            raise ResearchDataError(
+                f"WAR record {args.report_id} was not found for {args.api_well_number}"
+            )
+        return _envelope(
+            command,
+            vars(args),
+            data,
+            data_dir=data_dir,
+            datasets=["war_main", "war_text"],
+            source_family="BSEE Well Activity Reports",
+            join_identifier="API_WELL_NUMBER and SN_WAR",
+        ), 0
+
+    if command == "well.war-report-text":
+        data = war_report_text(repo, args.api_well_number, args.max_chars)
+        return _envelope(
+            command,
+            vars(args),
+            data,
+            data_dir=data_dir,
+            datasets=["war_main", "war_text"],
+            source_family="Locally published BSEE WAR report text",
+            join_identifier="API well number",
         ), 0
 
     if command == "well.applications":
@@ -1086,42 +1318,45 @@ def run(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
         ), 0
 
     if command == "well.permits":
-        data = well_applications_page(
+        data = well_permits_page(
             data_dir,
             args.api_well_number,
-            page=1,
-            page_size=args.sample_limit,
-            source="APD",
+            args.page,
+            args.page_size,
         )
         return _envelope(
             command,
-            {"api_well_number": args.api_well_number},
+            {
+                "api_well_number": args.api_well_number,
+                "page": args.page,
+                "page_size": args.page_size,
+            },
             data,
             data_dir=data_dir,
-            datasets=["apd_main", "application_attachments"],
+            datasets=["apd_main", "attachments"],
             source_family="BSEE APD permit and attachment data",
             join_identifier="API_WELL_NUMBER",
-            warnings=data.get("warnings", []),
         ), 0
 
     if command == "well.files":
-        data = well_documents_page(
+        data = well_files_page(
             data_dir,
-            repo,
             args.api_well_number,
-            page=1,
-            page_size=args.sample_limit,
-            source="FRS",
+            args.page,
+            args.page_size,
         )
         return _envelope(
             command,
-            {"api_well_number": args.api_well_number},
+            {
+                "api_well_number": args.api_well_number,
+                "page": args.page,
+                "page_size": args.page_size,
+            },
             data,
             data_dir=data_dir,
             datasets=["frs"],
             source_family="BSEE FRS Well File Inventory",
             join_identifier="API",
-            warnings=data.get("warnings", []),
         ), 0
 
     if command == "fields.list":
@@ -1161,7 +1396,7 @@ def run(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
         ), 0
 
     if command == "fields.wells":
-        data = compare_fields(data_dir, args.fields, args.sample_limit)
+        data = field_well_selection(data_dir, args.fields)
         return _envelope(
             command,
             {"fields": args.fields},
@@ -1175,6 +1410,27 @@ def run(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
                 "first_md_ft": "ft",
                 "final_md_ft": "ft",
                 "max_tvd_ft": "ft",
+            },
+        ), 0
+
+    if command == "fields.trajectory-comparison":
+        data = field_trajectory_comparison(
+            data_dir,
+            args.fields,
+            _api_values(args.api_well_numbers),
+        )
+        return _envelope(
+            command,
+            {"fields": args.fields, "api_well_numbers": args.api_well_numbers},
+            data,
+            data_dir=data_dir,
+            datasets=["boreholes", "azimuth", "structures"],
+            source_family="BSEE selected field, well, trajectory, and structure data",
+            join_identifier="FIELD and API_WELL_NUMBER",
+            units={
+                "water_depth_ft": "ft",
+                "measured_depth_ft": "ft",
+                "tvd_ft": "ft",
             },
         ), 0
 
@@ -1429,6 +1685,69 @@ def run(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
             source_family="BSEE decommissioning inventory and cost estimates",
             join_identifier="API well, lease/auth, area, and block identifiers",
             warnings=_section_warnings(data),
+            units={"cost": "USD"},
+        ), 0
+
+    if command == "decommissioning.authorities":
+        data = authority_search(
+            data_dir,
+            page=args.page,
+            page_size=args.page_size,
+            query=args.query,
+            authority_type=args.authority_type,
+            area=args.area,
+            block=args.block,
+        )
+        return _envelope(
+            command,
+            vars(args),
+            data,
+            data_dir=data_dir,
+            datasets=["decom_estimates", "decom_totals"],
+            source_family="BSEE decommissioning authorities and summarized obligations",
+            join_identifier="LSE, ROW, or RUE authority type and number",
+            units={"cost": "USD"},
+        ), 0
+
+    if command == "decommissioning.authority":
+        data = authority_detail(data_dir, args.authority_type, args.authority_number)
+        return _envelope(
+            command,
+            vars(args),
+            data,
+            data_dir=data_dir,
+            datasets=[key for key in DATASET_CATALOG if key.startswith("decom_")],
+            source_family="BSEE decommissioning authority inventory, costs, and assets",
+            join_identifier="LSE, ROW, or RUE authority type and number",
+            units={"cost": "USD"},
+        ), 0
+
+    if command in {
+        "decommissioning.well",
+        "decommissioning.pipeline",
+        "decommissioning.platform",
+    }:
+        asset_type = command.split(".", 1)[1]
+        if asset_type == "well":
+            identifiers = (args.api_well_number,)
+        elif asset_type == "pipeline":
+            identifiers = (args.segment_number,)
+        else:
+            identifiers = (args.complex_id, args.structure_number)
+        data = asset_detail(data_dir, asset_type, *identifiers)
+        datasets = {
+            "well": ["decom_spud_well", "decom_prop_well"],
+            "pipeline": ["decom_inst_pipe", "decom_prop_pipe"],
+            "platform": ["decom_inst_plat", "decom_prop_plat"],
+        }[asset_type]
+        return _envelope(
+            command,
+            vars(args),
+            data,
+            data_dir=data_dir,
+            datasets=datasets,
+            source_family="BSEE decommissioning asset estimates",
+            join_identifier="Exact asset identifier",
             units={"cost": "USD"},
         ), 0
 

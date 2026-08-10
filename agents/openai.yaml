@@ -1,6 +1,6 @@
 interface:
   display_name: "CX O&G Research"
-  short_description: "Research Gulf wells, assets, and evidence."
-  default_prompt: "Use $cx-og-well-research to research Gulf of Mexico wells, regulatory evidence, production, leases, platforms, or pipelines from local CX O&G data."
+  short_description: "Query current CX O&G research data standalone."
+  default_prompt: "Use $cx-og-well-research to query current Gulf of Mexico wells, fields, pipelines, regulatory evidence, or any non-map query exposed by the CX research app."
 policy:
   allow_implicit_invocation: true

@@ -1,17 +1,7 @@
-# Decommissioning Rules
+# Decommissioning
 
-Use for decommissioning inventories and cost research.
+Commands: `decommissioning search --api <api>|--lease <lease>|--area <area> --block <block>`; `decommissioning authorities --query <number> --type LSE|ROW|RUE`; `decommissioning authority <type> <number>`; `decommissioning well <api>`; `decommissioning pipeline <segment>`; `decommissioning platform <complex> <structure>`.
 
-## Commands
+Search options: `--min-cost`, `--cost-case p50|p70|p90|dtr`, `--pa-adjustment Y|N`. Use `tables describe decom_spud_well|decom_totals` for columns; ranking aliases include `decom_cost`, `p50_cost`, `p70_cost`, `p90_cost`.
 
-```powershell
-conda run -n cxstreamlit python $script --repo $repo decommissioning search --api <api>
-conda run -n cxstreamlit python $script --repo $repo decommissioning search --lease <lease>
-conda run -n cxstreamlit python $script --repo $repo decommissioning search --area <area> --block <block> --min-cost <amount> --cost-case p90
-```
-
-Options: `--lease`, `--api`, `--area`, `--block`, `--min-cost`, `--cost-case p50|p70|p90|dtr`, and `--pa-adjustment Y|N`.
-
-Use `tables describe decom_spud_well` or `tables describe decom_totals` when cost columns are unclear. Ranking aliases include `decom_cost`, `p50_cost`, `p70_cost`, and `p90_cost`.
-
-Report filters, cost case, currency/units, record counts, sum/max costs, and whether evidence comes from lease estimates, installed/proposed wells, platforms, pipelines, or totals. Do not present lease/category totals as single-well estimates.
+Report filters, scenario, USD units, counts, sum/max, installed/proposed status, and source level. Never present lease/category totals as one asset’s estimate. `authorities` discovers LSE/ROW/RUE; `authority` returns inventory/cost/assets; asset commands return exact estimates. Use `pipelines detail`, not decommissioning data, for cathodic protection/MAOP.

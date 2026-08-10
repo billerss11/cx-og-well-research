@@ -256,6 +256,8 @@ DATASET_CATALOG = {
         "leases",
     ),
     "lease_owner_remarks": _dataset("df_lease_owner_remarks.parquet", "leases"),
+    "lease_remarks": _dataset("df_lease_remarks.parquet", "leases"),
+    "lease_descriptions": _dataset("df_lease_descriptions.parquet", "leases"),
     "company_all": _dataset(
         "df_company_all.parquet",
         "companies",

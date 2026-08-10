@@ -9,6 +9,7 @@ if str(APP_REPO) not in sys.path:
     sys.path.append(str(APP_REPO))
 
 from backend.repositories.approvals import ApprovalsRepository
+from backend.repositories.decommissioning import DecommissioningRepository
 from backend.repositories.pipelines import PipelineRepository
 from backend.repositories.platforms import PlatformRepository
 from backend.repositories.wells import WellRepository
@@ -27,6 +28,17 @@ from well_research_current import (
     well_applications,
     well_documents,
     well_timeline,
+)
+from well_research_decom_queries import authority_detail
+from well_research_queries import (
+    casing_analysis,
+    casing_versions,
+    lease_activity,
+    well_files_page,
+    well_filter_options,
+    well_permits_page,
+    well_suggestions,
+    well_summary,
 )
 
 
@@ -48,10 +60,51 @@ def coverage_counts(rows):
 
 def test_runtime_layer_has_no_backend_imports():
     scripts = Path(__file__).resolve().parents[1] / "scripts"
-    for path in (scripts / "cx_og_research.py", scripts / "well_research_current.py"):
+    for path in scripts.glob("*.py"):
         source = path.read_text(encoding="utf-8")
         assert "from backend" not in source
         assert "import backend" not in source
+        assert "backend.app" not in source
+        assert "TestClient" not in source
+
+
+def test_new_standalone_well_queries_match_backend():
+    backend = WellRepository(DATA_DIR)
+    assert normalized(well_suggestions(DATA_DIR, "MADISON", 10)) == normalized(
+        backend.well_search_suggestions("MADISON", 10)
+    )
+    assert normalized(well_filter_options(DATA_DIR, "field", "MAD", 5)) == normalized(
+        backend.filter_options("field", "MAD", 5)
+    )
+    assert normalized(well_summary(DATA_DIR, PRODUCTION_API)) == normalized(
+        backend.summary(PRODUCTION_API)
+    )
+    assert normalized(casing_versions(DATA_DIR, PRODUCTION_API)) == normalized(
+        backend.casing_versions(PRODUCTION_API)
+    )
+    assert normalized(
+        casing_analysis(DATA_DIR, PRODUCTION_API, "war", 1, "feet")
+    ) == normalized(backend.casing_analysis(PRODUCTION_API, "war", 1, "feet"))
+    assert normalized(
+        lease_activity(DATA_DIR, PRODUCTION_API, "G10379", 1, 5, False)
+    ) == normalized(
+        backend.lease_activity(PRODUCTION_API, "G10379", 1, 5, False)
+    )
+    permit_rows, permit_total = backend.permits(REGULATORY_API, 1, 10)
+    permit_page = well_permits_page(DATA_DIR, REGULATORY_API, 1, 10)
+    assert permit_page["total_count"] == permit_total
+    assert normalized(permit_page["rows"]) == normalized(permit_rows)
+    file_rows, file_total = backend.files(REGULATORY_API, 1, 10)
+    file_page = well_files_page(DATA_DIR, REGULATORY_API, 1, 10)
+    assert file_page["total_count"] == file_total
+    assert normalized(file_page["rows"]) == normalized(file_rows)
+
+
+def test_standalone_decommissioning_authority_detail_matches_backend():
+    backend = DecommissioningRepository(DATA_DIR)
+    assert normalized(authority_detail(DATA_DIR, "LSE", "00008")) == normalized(
+        backend.authority_detail("LSE", "00008")
+    )
 
 
 def test_exact_and_fuzzy_well_search_match_backend():
@@ -309,6 +362,10 @@ def test_pipeline_attributes_filters_and_detail_match_backend_without_geometry()
     )
     assert skill_detail["permit_history"]["total_count"] == len(
         backend_detail["permit_records"]
+    )
+    assert "cathodic_code" in skill_detail["segment"]
+    assert normalized(skill_detail["segment"]["cathodic_code"]) == normalized(
+        backend_detail["permit_overview"]["cathodic_code"]
     )
     assert len(skill_detail["submittals"]) == backend_detail["history"]["total_count"]
     assert normalized(

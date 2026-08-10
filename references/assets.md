@@ -1,21 +1,9 @@
-# Platform and Pipeline Rules
+# Platforms and Pipelines
 
-Use for non-map platform and pipeline attributes, history, relationships, and approvals.
+Commands: `platforms search [filters]`; `platforms detail <complex> <structure>`; `pipelines search [--status code] [--product code] [--company text]`; `pipelines detail <segment> --history-page N --history-page-size N`.
 
-## Commands
+Platform detail covers attributes, approvals, removal history. Pipeline detail covers latest permit, permit/submittal history, endpoint connections, matched platforms, and approvals.
 
-```powershell
-conda run -n cxstreamlit python $script --repo $repo platforms search --status active --company "<operator>"
-conda run -n cxstreamlit python $script --repo $repo platforms detail <complex-id> <structure-number>
-conda run -n cxstreamlit python $script --repo $repo pipelines search --status <code> --product <code> --company "<operator>"
-conda run -n cxstreamlit python $script --repo $repo pipelines detail <segment-number> --history-page 1 --history-page-size 25
-```
+For engineering/regulatory questions inspect `segment` and `permit_history.rows`. Preserve `cathodic_code`, MAOP, water depth, ROW/authority/bidirectional codes, lifecycle dates, endpoints, status, size, product, and operator. Cathodic code is raw: null = “not reported”; never infer/decode without an authoritative source.
 
-Platform detail may include structure attributes, approvals, and removal history. Pipeline detail may include the latest segment attributes, permit history, submittals, endpoint connections, matched platform records, and approvals.
-
-Preserve exact complex/structure and segment identifiers. Keep status/product/company filters explicit. Treat missing enrichment datasets as partial coverage.
-Approval identifiers use published forms such as `complex:<complex-id>` for a platform complex and usually the bare segment number for a pipeline. Keep complex-level approval links separate from structure-specific matches.
-
-If a source attribute status and the latest permit status differ, report both with their source context; do not silently choose one.
-
-Do not return geometry, coordinates, GeoJSON, endpoint shapes, bathymetry, or continental-shelf data.
+Preserve exact complex/structure/segment IDs. Keep complex-level approvals separate from structure matches. If source and latest-permit statuses differ, report both with provenance. Missing enrichment means partial coverage. Exclude geometry/maps/coordinates.

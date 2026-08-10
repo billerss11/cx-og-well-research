@@ -851,7 +851,10 @@ def field_options(data_dir: Path) -> list[dict[str, Any]]:
             )
             SELECT
                 TRIM(borehole.FIELD) AS field_code,
-                MIN(TRIM(borehole."OPERATOR FIELD")) AS name,
+                COALESCE(
+                    MIN(NULLIF(TRIM(borehole."OPERATOR FIELD"), '')),
+                    TRIM(borehole.FIELD)
+                ) AS name,
                 COUNT(DISTINCT borehole.API_WELL_NUMBER) AS recorded_well_count,
                 COUNT(DISTINCT trajectory.api_well_number) AS trajectory_well_count,
                 COALESCE(SUM(trajectory.source_station_count), 0) AS source_station_count
@@ -859,7 +862,6 @@ def field_options(data_dir: Path) -> list[dict[str, Any]]:
             LEFT JOIN trajectory_counts trajectory
               ON borehole.API_WELL_NUMBER = trajectory.api_well_number
             WHERE TRIM(COALESCE(borehole.FIELD, '')) <> ''
-              AND TRIM(COALESCE(borehole."OPERATOR FIELD", '')) <> ''
             GROUP BY TRIM(borehole.FIELD)
             ORDER BY name, field_code
             """
