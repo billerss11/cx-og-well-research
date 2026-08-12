@@ -84,11 +84,13 @@ def test_parser_exposes_every_public_command(arguments, command):
     assert actual == command
 
 
-def test_json_helpers_strip_map_data_and_serialize_paths():
+def test_json_helpers_preserve_scalar_coordinates_and_strip_map_data():
     value = {
         "path": Path("example.txt"),
         "latitude": 29.0,
         "nested": {"geometry": "not allowed", "value": (1, 2)},
+        "geojson": {"type": "FeatureCollection", "features": []},
+        "bathymetry": [{"depth": 1000}],
         "columns": [
             {"name": "LONGITUDE", "unit": "deg", "aliases": []},
             {"name": "oil", "unit": "bbl", "aliases": []},
@@ -96,9 +98,11 @@ def test_json_helpers_strip_map_data_and_serialize_paths():
     }
     cleaned = to_jsonable(_strip_map_data(value))
     assert cleaned["path"] == "example.txt"
-    assert "latitude" not in cleaned
+    assert cleaned["latitude"] == 29.0
     assert "geometry" not in cleaned["nested"]
-    assert [column["name"] for column in cleaned["columns"]] == ["oil"]
+    assert "geojson" not in cleaned
+    assert "bathymetry" not in cleaned
+    assert [column["name"] for column in cleaned["columns"]] == ["LONGITUDE", "oil"]
 
 
 def test_emit_writes_canonical_json(tmp_path):

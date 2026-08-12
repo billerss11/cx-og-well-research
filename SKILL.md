@@ -29,7 +29,7 @@ Global options precede the command: `--data-dir`, `--format json|markdown`, `--o
 - Confirm fuzzy matches with exact identifiers. Preserve IDs, dates, units, counts, ordering, and source/link confidence.
 - Separate APD planned from WAR actual casing; production completion names from EOR IDs; current/terminated owners from inferred buyers/sellers.
 - Return document metadata/paths only unless file reading is separately requested.
-- Exclude maps, geometry, coordinates, GeoJSON, bathymetry, and shelf layers.
+- Preserve scalar latitude/longitude fields in query results. Exclude rendered maps, geometry, GeoJSON, bathymetry, shelf layers, and map-only coordinate systems.
 - Use `--page-size` for pages/history and `--sample-limit` for dossier/representative samples.
 
 ## References

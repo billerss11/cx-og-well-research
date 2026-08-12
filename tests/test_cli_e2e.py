@@ -18,9 +18,7 @@ CANONICAL_KEYS = {
     "coverage",
     "warnings",
 }
-MAP_KEY_PARTS = (
-    "latitude",
-    "longitude",
+EXCLUDED_MAP_KEY_PARTS = (
     "geometry",
     "geojson",
     "easting",
@@ -59,16 +57,16 @@ def run_cli(arguments: list[str], *, repo=APP_REPO) -> subprocess.CompletedProce
     )
 
 
-def assert_no_map_keys(value):
+def assert_no_map_payload_keys(value):
     if isinstance(value, dict):
         for key, child in value.items():
             normalized = str(key).casefold()
-            assert not any(part in normalized for part in MAP_KEY_PARTS), key
+            assert not any(part in normalized for part in EXCLUDED_MAP_KEY_PARTS), key
             assert normalized not in {"geom", "wkt", "wkb", "shape"}
-            assert_no_map_keys(child)
+            assert_no_map_payload_keys(child)
     elif isinstance(value, list):
         for child in value:
-            assert_no_map_keys(child)
+            assert_no_map_payload_keys(child)
 
 
 @pytest.mark.parametrize(
@@ -127,7 +125,62 @@ def test_every_public_command_runs_with_canonical_bounded_json(
     assert result["command"] == expected_command
     assert result["schema_version"] == 1
     assert isinstance(result["warnings"], list)
-    assert_no_map_keys(result)
+    assert_no_map_payload_keys(result)
+
+
+def test_search_and_summary_return_scalar_coordinates():
+    search = run_cli(["wells", "search", "608054000500", "--page-size", "1"])
+    assert search.returncode == 0, search.stderr
+    search_row = json.loads(search.stdout)["data"]["rows"][0]
+    assert search_row["Surface latitude"] is not None
+    assert search_row["Surface longitude"] is not None
+
+    summary = run_cli(["well", "summary", "608054000500"])
+    assert summary.returncode == 0, summary.stderr
+    summary_data = json.loads(summary.stdout)["data"]
+    assert summary_data["surface_latitude"] is not None
+    assert summary_data["surface_longitude"] is not None
+    assert "bottom_latitude" in summary_data
+    assert "bottom_longitude" in summary_data
+
+
+def test_field_raw_table_and_dossier_return_scalar_coordinates():
+    fields = run_cli(["fields", "wells", "AC336"])
+    assert fields.returncode == 0, fields.stderr
+    field_row = json.loads(fields.stdout)["data"]["wells"][0]
+    assert field_row["surface_latitude"] is not None
+    assert field_row["surface_longitude"] is not None
+
+    raw = run_cli(
+        ["well", "raw", "608054000500", "boreholes", "--page-size", "1"]
+    )
+    assert raw.returncode == 0, raw.stderr
+    raw_row = json.loads(raw.stdout)["data"]["rows"][0]
+    assert raw_row["SURF_LATITUDE"] is not None
+    assert raw_row["SURF_LONGITUDE"] is not None
+    assert "BOTM_LATITUDE" in raw_row
+    assert "BOTM_LONGITUDE" in raw_row
+
+    table = run_cli(["tables", "describe", "boreholes"])
+    assert table.returncode == 0, table.stderr
+    table_data = json.loads(table.stdout)["data"]
+    column_names = {column["name"] for column in table_data["columns"]}
+    assert {
+        "SURF_LATITUDE",
+        "SURF_LONGITUDE",
+        "BOTM_LATITUDE",
+        "BOTM_LONGITUDE",
+    } <= column_names
+
+    dossier = run_cli(
+        ["well", "dossier", "608054000500", "--sections", "borehole"]
+    )
+    assert dossier.returncode == 0, dossier.stderr
+    dossier_data = json.loads(dossier.stdout)["data"]
+    assert dossier_data["identity"]["SURF_LATITUDE"] is not None
+    assert dossier_data["identity"]["SURF_LONGITUDE"] is not None
+    assert "BOTM_LATITUDE" in dossier_data["identity"]
+    assert "BOTM_LONGITUDE" in dossier_data["identity"]
 
 
 def test_empty_search_is_successful():
@@ -255,7 +308,7 @@ def test_sample_limit_bounds_production_rows_and_dossier_lists():
     )
     assert dossier.returncode == 0
     dossier_result = json.loads(dossier.stdout)
-    assert_no_map_keys(dossier_result)
+    assert_no_map_payload_keys(dossier_result)
     assert len(
         dossier_result["data"]["sections"]["production"]["sample"]
     ) <= 1

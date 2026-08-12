@@ -4,4 +4,4 @@ Use `doctor` when the data path is uncertain; `tables list` for availability; `t
 
 The catalog defines each Parquet key, filename, family, required flag, expected columns, identifiers, units, and aliases. Missing/invalid required data makes a command unavailable; missing optional data yields partial `coverage` plus a warning.
 
-For rankings, report requested alias, resolved column, direction, units, count, and sampled rows; inspect the leading API/asset before strong claims. Map datasets/fields are excluded.
+For rankings, report requested alias, resolved column, direction, units, count, and sampled rows; inspect the leading API/asset before strong claims. Preserve scalar latitude/longitude columns and units. Map payloads, geometry, GeoJSON, bathymetry, shelf layers, and map-only coordinate systems are excluded.

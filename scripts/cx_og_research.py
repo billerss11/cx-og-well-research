@@ -71,9 +71,10 @@ from well_research_queries import (
 
 
 SCHEMA_VERSION = 1
-MAP_FIELD_PARTS = (
-    "latitude",
-    "longitude",
+# Scalar latitude/longitude values are query data and remain public. These
+# names identify map payloads or map-only coordinate systems that the CLI
+# still excludes.
+EXCLUDED_MAP_FIELD_PARTS = (
     "geometry",
     "geojson",
     "easting",
@@ -468,7 +469,7 @@ def _is_map_field(name: str) -> bool:
     normalized = re.sub(r"[^a-z0-9]+", "_", name.casefold()).strip("_")
     return (
         normalized in {"geom", "wkt", "wkb", "shape"}
-        or any(part in normalized for part in MAP_FIELD_PARTS)
+        or any(part in normalized for part in EXCLUDED_MAP_FIELD_PARTS)
     )
 
 
@@ -736,7 +737,11 @@ def run(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
             datasets=["boreholes", "structures", "war_main", "war_text", "attachments"],
             source_family="BSEE well, structure, WAR, and attachment data",
             join_identifier="API_WELL_NUMBER; SN_WAR; surface location structure match",
-            units={"Water depth (ft)": "ft"},
+            units={
+                "Water depth (ft)": "ft",
+                "Surface latitude": "decimal degrees",
+                "Surface longitude": "decimal degrees",
+            },
         ), 0
 
     if command == "wells.suggestions":
@@ -978,6 +983,12 @@ def run(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
             datasets=["boreholes", "war_main"],
             source_family="BSEE Borehole Raw Data and Well Activity Reports",
             join_identifier="API_WELL_NUMBER",
+            units={
+                "surface_latitude": "decimal degrees",
+                "surface_longitude": "decimal degrees",
+                "bottom_latitude": "decimal degrees",
+                "bottom_longitude": "decimal degrees",
+            },
         ), 0
 
     if command == "well.availability":
@@ -1410,6 +1421,8 @@ def run(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
                 "first_md_ft": "ft",
                 "final_md_ft": "ft",
                 "max_tvd_ft": "ft",
+                "surface_latitude": "decimal degrees",
+                "surface_longitude": "decimal degrees",
             },
         ), 0
 

@@ -6,4 +6,4 @@ Prefer `wellpath_metrics` for departure, TVD delta, closure azimuth, inclination
 
 Classification: horizontal if max inclination ≥80°; vertical if MD-weighted average inclination ≤3°; otherwise directional.
 
-Report API, requested alias/resolved column, value, units, station count, type, and metric status. Exclude all map/coordinate fields.
+Report API, requested alias/resolved column, value, units, station count, type, and metric status. Preserve scalar latitude/longitude values. Exclude geometry, GeoJSON, rendered map layers, and map-only coordinate systems.
