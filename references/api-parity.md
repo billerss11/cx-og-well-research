@@ -5,7 +5,7 @@ The skill bundles query code and reads published files directly: no `backend` im
 ## Coverage
 
 - Discovery/evidence: `wells search|suggestions|filter-options`; `evidence search|detail`.
-- Well: `well identity|summary|availability|relationships|ownership|lease-activity|production|trajectory|trajectory-analysis|wellbore|casing|casing-versions|casing-analysis|war|war-record|war-report-text|permits|files|applications|documents|timeline|timeline-detail|raw`.
+- Well: `well identity|summary|availability|relationships|ownership|lease-activity|production|trajectory|trajectory-analysis|wellbore|casing|casing-versions|casing-analysis|war|war-record|permits|files|applications|documents|timeline|timeline-detail|raw`.
 - Bulk/comparison: `well batch`; `bulk files|war`; `production compare`.
 - Fields: `fields list|wells|compare|trajectory-comparison|leases|lease-context`.
 - Assets/regulatory: `pipelines search|detail`; `platforms search|detail`; `approvals search|options`.

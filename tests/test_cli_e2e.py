@@ -6,7 +6,13 @@ import sys
 
 import pytest
 
-from conftest import APP_REPO, CLI
+from conftest import CLI, DATA_DIR
+
+
+pytestmark = pytest.mark.skipif(
+    DATA_DIR is None or not DATA_DIR.is_dir(),
+    reason="CLI end-to-end tests require CX_OG_DATA_DIR.",
+)
 
 
 CANONICAL_KEYS = {
@@ -38,13 +44,13 @@ EXCLUDED_MAP_KEY_PARTS = (
 )
 
 
-def run_cli(arguments: list[str], *, repo=APP_REPO) -> subprocess.CompletedProcess[str]:
+def run_cli(arguments: list[str], *, data_dir=DATA_DIR) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [
             sys.executable,
             str(CLI),
-            "--repo",
-            str(repo),
+            "--data-dir",
+            str(data_dir),
             "--sample-limit",
             "1",
             *arguments,
@@ -349,7 +355,7 @@ def test_invalid_input_uses_exit_code_2():
 
 
 def test_unavailable_required_data_uses_exit_code_3(tmp_path):
-    completed = run_cli(["doctor"], repo=tmp_path)
+    completed = run_cli(["doctor"], data_dir=tmp_path)
     assert completed.returncode == 3
     result = json.loads(completed.stdout)
     assert set(result) == CANONICAL_KEYS

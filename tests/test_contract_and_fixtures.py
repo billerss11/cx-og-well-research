@@ -10,9 +10,10 @@ from cx_og_research import (
     _strip_map_data,
     build_parser,
     emit,
+    run,
 )
 from well_research_casing import build_global_casing_search
-from well_research_config import DATASETS
+from well_research_config import DATASET_CATALOG, DATASETS
 from well_research_core import build_ranked_dataset, describe_table, to_jsonable
 from well_research_current import (
     raw_well_records,
@@ -22,6 +23,7 @@ from well_research_current import (
 )
 from well_research_decom import build_decom_research
 from well_research_lease import build_lease_information
+from well_research_settings import config_path, resolve_data_dir
 
 
 CANONICAL_KEYS = {
@@ -38,6 +40,7 @@ CANONICAL_KEYS = {
 @pytest.mark.parametrize(
     "arguments,command",
     [
+        (["configure", "cx-data"], "configure"),
         (["doctor"], "doctor"),
         (["wells", "search", "MADISON"], "wells.search"),
         (["wells", "suggestions", "MADISON"], "wells.suggestions"),
@@ -52,7 +55,6 @@ CANONICAL_KEYS = {
         (["well", "casing-versions", "608054000500"], "well.casing-versions"),
         (["well", "casing-analysis", "608054000500", "--source", "war"], "well.casing-analysis"),
         (["well", "war-record", "608054000500", "2988"], "well.war-record"),
-        (["well", "war-report-text", "608054000500"], "well.war-report-text"),
         (["fields", "list"], "fields.list"),
         (["fields", "compare", "AC336"], "fields.compare"),
         (["fields", "leases", "AC336"], "fields.leases"),
@@ -82,6 +84,29 @@ def test_parser_exposes_every_public_command(arguments, command):
     args = build_parser().parse_args(arguments)
     actual = args.group if not hasattr(args, "action") else f"{args.group}.{args.action}"
     assert actual == command
+
+
+def test_configure_saves_valid_data_folder_locally(tmp_path, monkeypatch):
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    for spec in DATASET_CATALOG.values():
+        if spec["required"]:
+            pd.DataFrame(columns=spec["required_columns"]).to_parquet(
+                data_dir / spec["filename"],
+                index=False,
+            )
+
+    local_config = tmp_path / "local-config"
+    monkeypatch.setenv("LOCALAPPDATA", str(local_config))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(local_config))
+    monkeypatch.delenv("CX_OG_DATA_DIR", raising=False)
+
+    result, status = run(build_parser().parse_args(["configure", str(data_dir)]))
+
+    assert status == 0
+    assert result["data"]["validation_ok"] is True
+    assert config_path().is_file()
+    assert resolve_data_dir() == data_dir.resolve()
 
 
 def test_json_helpers_preserve_scalar_coordinates_and_strip_map_data():
@@ -477,12 +502,12 @@ def test_regulatory_fixture_covers_apps_documents_and_timeline(
         write_parquet(tmp_path, DATASETS[key], rows)
 
     applications = well_applications(tmp_path, api, 10)
-    documents = well_documents(tmp_path, tmp_path, api, 10)
+    documents = well_documents(tmp_path, api, 10)
     timeline = well_timeline(tmp_path, api, None, 100)
     assert applications["records"] == 2
     assert {row["source_family"] for row in applications["sample"]} == {"APD", "APM"}
     assert documents["records"] == 2
-    assert all("local_path" in row for row in documents["sample"])
+    assert all("local_path" not in row for row in documents["sample"])
     assert {
         "API change",
         "Directional survey",

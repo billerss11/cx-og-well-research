@@ -655,7 +655,7 @@ def well_files_page(data_dir: Path, api_well_number: str, page: int, page_size: 
     return _page(frame, page, page_size)
 
 
-def well_war_page(data_dir: Path, repo: Path, api_well_number: str, page: int, page_size: int) -> dict[str, Any]:
+def well_war_page(data_dir: Path, api_well_number: str, page: int, page_size: int) -> dict[str, Any]:
     _require(data_dir, "war_main", "war_text")
     frame = duckdb_df(
         f"""
@@ -679,49 +679,15 @@ def well_war_page(data_dir: Path, repo: Path, api_well_number: str, page: int, p
         """,
         [api_well_number],
     )
-    result = _page(frame, page, page_size)
-    available = war_report_path(repo, api_well_number) is not None
-    for row in result["rows"]:
-        row["report_available"] = available
-    return result
+    return _page(frame, page, page_size)
 
 
-def well_war_record(data_dir: Path, repo: Path, api_well_number: str, report_id: str) -> dict[str, Any] | None:
-    result = well_war_page(data_dir, repo, api_well_number, 1, 1_000_000)
+def well_war_record(data_dir: Path, api_well_number: str, report_id: str) -> dict[str, Any] | None:
+    result = well_war_page(data_dir, api_well_number, 1, 1_000_000)
     for row in result["rows"]:
         if str(row["report_id"]) == str(report_id):
             return row
     return None
-
-
-def war_report_path(repo: Path, api_well_number: str) -> Path | None:
-    if not api_well_number.isdigit() or len(api_well_number) != 12:
-        return None
-    candidates = (
-        repo / "files" / "war_documents" / f"api_{api_well_number[:4]}" / f"WAR_{api_well_number}.txt",
-        repo / "files" / f"api_{api_well_number[:4]}" / f"WAR_{api_well_number}.txt",
-    )
-    for candidate in candidates:
-        if candidate.is_file():
-            return candidate.resolve()
-    return None
-
-
-def war_report_text(repo: Path, api_well_number: str, max_chars: int | None = None) -> dict[str, Any]:
-    path = war_report_path(repo, api_well_number)
-    if path is None:
-        raise FileNotFoundError(f"WAR report text is unavailable for {api_well_number}")
-    text = path.read_text(encoding="utf-8", errors="replace")
-    truncated = max_chars is not None and max_chars > 0 and len(text) > max_chars
-    return {
-        "api_well_number": api_well_number,
-        "path": str(path),
-        "character_count": len(text),
-        "truncated": truncated,
-        "text": text[:max_chars] if truncated and max_chars is not None else text,
-    }
-
-
 def field_well_selection(data_dir: Path, requested_fields: list[str]) -> dict[str, Any]:
     from well_research_current import _resolve_fields
 

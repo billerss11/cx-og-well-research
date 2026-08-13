@@ -9,5 +9,5 @@ Answer with the result first, then material limits. Preserve IDs, dates, units, 
 Use `--page-size` for paginated/history rows and `--sample-limit` for samples. Put durable-output flags before the command:
 
 ```powershell
-conda run -n cxstreamlit python $script --repo $repo --output <result.json> <command...>
+conda run -n cxstreamlit python $script --output <result.json> <command...>
 ```

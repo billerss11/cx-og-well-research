@@ -15,7 +15,6 @@ from well_research_config import DATASET_CATALOG, INCIDENT_TERMS
 from well_research_core import (
     build_ranked_dataset,
     describe_table,
-    repo_root_from,
     to_jsonable,
 )
 from well_research_current import (
@@ -58,7 +57,6 @@ from well_research_queries import (
     field_well_selection,
     lease_activity,
     trajectory_analysis,
-    war_report_text,
     well_casing_page,
     well_files_page,
     well_filter_options,
@@ -68,6 +66,7 @@ from well_research_queries import (
     well_war_page,
     well_war_record,
 )
+from well_research_settings import resolve_data_dir, save_data_dir
 
 
 SCHEMA_VERSION = 1
@@ -154,13 +153,17 @@ def _common_search(parser: argparse.ArgumentParser) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--repo", type=Path, default=Path.cwd())
     parser.add_argument("--data-dir", type=Path)
     parser.add_argument("--format", choices=["json", "markdown"], default="json")
     parser.add_argument("--output", type=Path)
     parser.add_argument("--sample-limit", type=_bounded_int(1, 100), default=10)
     commands = parser.add_subparsers(dest="group", required=True)
 
+    configure = commands.add_parser(
+        "configure",
+        help="Save the CX Parquet data folder for this machine.",
+    )
+    configure.add_argument("path", type=Path)
     commands.add_parser("doctor", help="Validate required and optional data contracts.")
 
     wells = commands.add_parser("wells")
@@ -286,9 +289,6 @@ def build_parser() -> argparse.ArgumentParser:
     war_record_parser = well_commands.add_parser("war-record")
     war_record_parser.add_argument("api_well_number", type=_api)
     war_record_parser.add_argument("report_id")
-    war_text_parser = well_commands.add_parser("war-report-text")
-    war_text_parser.add_argument("api_well_number", type=_api)
-    war_text_parser.add_argument("--max-chars", type=_bounded_int(1, 10_000_000))
     lease_activity_parser = well_commands.add_parser("lease-activity")
     lease_activity_parser.add_argument("api_well_number", type=_api)
     lease_activity_parser.add_argument("lease_number")
@@ -674,9 +674,50 @@ def _batch_datasets(section: str) -> list[str]:
 
 
 def run(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
-    repo = repo_root_from(args.repo)
-    data_dir = (args.data_dir or repo / "data").resolve()
     command = f"{args.group}.{getattr(args, 'action', '')}".rstrip(".")
+
+    if args.group == "configure":
+        data_dir = args.path.expanduser().resolve()
+        if not data_dir.is_dir():
+            raise FileNotFoundError(f"The selected data folder does not exist: {data_dir}")
+        known_files = [
+            spec["filename"]
+            for spec in DATASET_CATALOG.values()
+            if (data_dir / spec["filename"]).is_file()
+        ]
+        if not known_files:
+            raise ResearchDataError(
+                f"No recognized CX Parquet files were found in {data_dir}. "
+                "Select the folder that directly contains the .parquet files."
+            )
+        validation = doctor(data_dir)
+        if not validation["ok"]:
+            problems = [
+                *validation.get("missing_required", []),
+                *validation.get("invalid_required", []),
+            ]
+            raise ResearchDataError(
+                "The selected folder is not a complete valid CX Parquet dataset. "
+                f"Required dataset problems: {', '.join(problems)}"
+            )
+        saved_to = save_data_dir(data_dir)
+        return _envelope(
+            "configure",
+            {"data_dir": str(data_dir)},
+            {
+                "data_dir": str(data_dir),
+                "config_file": str(saved_to),
+                "recognized_files": len(known_files),
+                "validation_ok": True,
+            },
+            data_dir=data_dir,
+            datasets=[],
+            source_family="Local CX O&G Parquet configuration",
+            join_identifier="Not applicable",
+            warnings=[],
+        ), 0
+
+    data_dir = resolve_data_dir(args.data_dir)
 
     if args.group == "doctor":
         data = doctor(data_dir)
@@ -852,7 +893,6 @@ def run(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
         )
         data = build_dossier(
             data_dir,
-            repo,
             args.api_well_number,
             args.sample_limit,
             sections=selected,
@@ -994,7 +1034,6 @@ def run(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
     if command == "well.availability":
         dossier_data = build_dossier(
             data_dir,
-            repo,
             args.api_well_number,
             args.sample_limit,
         )
@@ -1064,7 +1103,6 @@ def run(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
         }[command]
         dossier_data = build_dossier(
             data_dir,
-            repo,
             args.api_well_number,
             args.sample_limit,
             sections=[section_name],
@@ -1182,7 +1220,6 @@ def run(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
     if command == "well.war":
         data = well_war_page(
             data_dir,
-            repo,
             args.api_well_number,
             args.page,
             args.page_size,
@@ -1198,7 +1235,7 @@ def run(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
         ), 0
 
     if command == "well.war-record":
-        data = well_war_record(data_dir, repo, args.api_well_number, args.report_id)
+        data = well_war_record(data_dir, args.api_well_number, args.report_id)
         if data is None:
             raise ResearchDataError(
                 f"WAR record {args.report_id} was not found for {args.api_well_number}"
@@ -1211,18 +1248,6 @@ def run(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
             datasets=["war_main", "war_text"],
             source_family="BSEE Well Activity Reports",
             join_identifier="API_WELL_NUMBER and SN_WAR",
-        ), 0
-
-    if command == "well.war-report-text":
-        data = war_report_text(repo, args.api_well_number, args.max_chars)
-        return _envelope(
-            command,
-            vars(args),
-            data,
-            data_dir=data_dir,
-            datasets=["war_main", "war_text"],
-            source_family="Locally published BSEE WAR report text",
-            join_identifier="API well number",
         ), 0
 
     if command == "well.applications":
@@ -1248,7 +1273,6 @@ def run(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
     if command == "well.documents":
         data = well_documents_page(
             data_dir,
-            repo,
             args.api_well_number,
             page=args.page,
             page_size=args.page_size,

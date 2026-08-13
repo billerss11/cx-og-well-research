@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -9,8 +10,16 @@ import pytest
 
 SKILL_ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = SKILL_ROOT / "scripts"
-APP_REPO = Path(r"J:\cx_coding_project_unsyc\python\CX_O-G_APP")
-DATA_DIR = APP_REPO / "data"
+_app_repo = os.environ.get("CX_OG_APP_REPO")
+_data_dir = os.environ.get("CX_OG_DATA_DIR")
+APP_REPO = Path(_app_repo).expanduser() if _app_repo else None
+DATA_DIR = (
+    Path(_data_dir).expanduser()
+    if _data_dir
+    else APP_REPO / "data"
+    if APP_REPO
+    else None
+)
 CLI = SCRIPTS / "cx_og_research.py"
 
 if str(SCRIPTS) not in sys.path:

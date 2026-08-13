@@ -1470,54 +1470,8 @@ def well_applications(
     }
 
 
-def _approved_roots(repo: Path) -> tuple[Path, ...]:
-    roots = [
-        (repo / "data" / "unzipped").resolve(),
-        (repo / "files" / "war_documents").resolve(),
-    ]
-    config = repo / "config.yaml"
-    if config.is_file():
-        try:
-            import yaml
-
-            values = yaml.safe_load(config.read_text(encoding="utf-8")) or {}
-            for key in ("RAW_FILES_DIR", "MAIN_FILES_DIR", "DATA_SOURCE_FOR_ALL_APPS"):
-                if not values.get(key):
-                    continue
-                path = Path(values[key])
-                if not path.is_absolute():
-                    path = repo / path
-                roots.append(path.resolve())
-        except (OSError, ValueError, TypeError):
-            pass
-    return tuple(dict.fromkeys(roots))
-
-
-def _resolve_document_path(
-    repo: Path,
-    api_well_number: str,
-    document_id: str,
-    extension: str | None,
-) -> str | None:
-    safe_extension = (extension or "").strip()
-    if safe_extension and not safe_extension.startswith("."):
-        safe_extension = "." + safe_extension
-    filename = f"{document_id}{safe_extension}"
-    for root in _approved_roots(repo):
-        for candidate in (
-            root / filename,
-            root / api_well_number / filename,
-            root / f"api_{api_well_number[:4]}" / filename,
-        ):
-            resolved = candidate.resolve()
-            if resolved.is_relative_to(root) and resolved.is_file():
-                return str(resolved)
-    return None
-
-
 def well_documents(
     data_dir: Path,
-    repo: Path,
     api_well_number: str,
     sample_limit: int,
 ) -> dict[str, Any]:
@@ -1594,21 +1548,9 @@ def well_documents(
         """,
         [*parameters, sample_limit],
     )
-    rows = _records(sample)
-    for row in rows:
-        row["local_path"] = (
-            _resolve_document_path(
-                repo,
-                api_well_number,
-                str(row.get("document_id") or ""),
-                row.get("file_extension"),
-            )
-            if row.get("source_family") == "FRS"
-            else None
-        )
     return {
         "records": int(total.iloc[0]["count"]),
-        "sample": rows,
+        "sample": _records(sample),
         "warnings": warnings,
     }
 
@@ -1654,7 +1596,6 @@ def well_applications_page(
 
 def well_documents_page(
     data_dir: Path,
-    repo: Path,
     api_well_number: str,
     *,
     page: int = 1,
@@ -1663,7 +1604,7 @@ def well_documents_page(
     query: str | None = None,
     availability: str | None = None,
 ) -> dict[str, Any]:
-    data = well_documents(data_dir, repo, api_well_number, 100_000)
+    data = well_documents(data_dir, api_well_number, 100_000)
     rows = list(data.get("sample", []))
     if source:
         source_key = source.casefold()
@@ -3231,7 +3172,6 @@ def _raw_counts(data_dir: Path, api_well_number: str) -> dict[str, int | None]:
 
 def build_dossier(
     data_dir: Path,
-    repo: Path,
     api_well_number: str,
     sample_limit: int,
     *,
@@ -3250,7 +3190,7 @@ def build_dossier(
     )
     section_data = dict(legacy["sections"])
     applications = well_applications(data_dir, api_well_number, sample_limit)
-    documents = well_documents(data_dir, repo, api_well_number, sample_limit)
+    documents = well_documents(data_dir, api_well_number, sample_limit)
     legacy_timeline = section_data.get("timeline", {}).get("sample", [])
     section_data["relationships"] = well_relationships(
         data_dir,

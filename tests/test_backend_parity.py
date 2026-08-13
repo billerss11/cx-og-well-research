@@ -3,7 +3,15 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
+
 from conftest import APP_REPO, DATA_DIR
+
+if APP_REPO is None or DATA_DIR is None or not APP_REPO.is_dir() or not DATA_DIR.is_dir():
+    pytest.skip(
+        "Backend parity requires CX_OG_APP_REPO and CX_OG_DATA_DIR.",
+        allow_module_level=True,
+    )
 
 if str(APP_REPO) not in sys.path:
     sys.path.append(str(APP_REPO))
@@ -191,7 +199,7 @@ def test_applications_documents_and_timeline_match_backend():
     document_rows, document_total, document_coverage, document_warnings = (
         backend.documents(REGULATORY_API, page=1, page_size=10)
     )
-    skill_documents = well_documents(DATA_DIR, APP_REPO, REGULATORY_API, 10)
+    skill_documents = well_documents(DATA_DIR, REGULATORY_API, 10)
     comparable_fields = (
         "document_id",
         "parent_type",
@@ -218,7 +226,7 @@ def test_applications_documents_and_timeline_match_backend():
     ]
     assert skill_documents["warnings"] == document_warnings
     assert sum(coverage_counts(document_coverage).values()) == document_total
-    assert all("local_path" in row for row in skill_documents["sample"])
+    assert all("local_path" not in row for row in skill_documents["sample"])
 
     timeline_rows, timeline_total, timeline_coverage, timeline_warnings = (
         backend.timeline(REGULATORY_API, page=1, page_size=10)
@@ -249,7 +257,6 @@ def test_known_dossier_section_counts_match_backend():
     production = backend.production(PRODUCTION_API)
     dossier = build_dossier(
         DATA_DIR,
-        APP_REPO,
         PRODUCTION_API,
         1,
         sections=["production", "applications", "documents", "timeline"],

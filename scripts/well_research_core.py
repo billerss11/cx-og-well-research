@@ -26,14 +26,6 @@ def norm_api(value: Any) -> str:
     return "".join(ch for ch in str(value) if ch.isdigit())
 
 
-def repo_root_from(start: Path) -> Path:
-    here = start.resolve()
-    for candidate in [here, *here.parents]:
-        if (candidate / "config.yaml").exists() and (candidate / "data").exists():
-            return candidate
-    return here
-
-
 def sql_literal(value: Any) -> str:
     return "'" + str(value).replace("'", "''") + "'"
 
