@@ -45,6 +45,7 @@ advanced override; never require the user to understand or configure it.
 ## Rules
 
 - Treat `coverage` and `warnings` as results. Missing optional data means partial coverage; empty searches are valid.
+- Use `well timeline` for chronology, then `well timeline-detail <api> <event-id>` for the exact source record, narrative, and linked sections behind any event. Do not stop at the timeline label when the user asks what happened.
 - Confirm fuzzy matches with exact identifiers. Preserve IDs, dates, units, counts, ordering, and source/link confidence.
 - Separate APD planned from WAR actual casing; production completion names from EOR IDs; current/terminated owners from inferred buyers/sellers.
 - Return document metadata from Parquet. Do not discover or return local document paths.

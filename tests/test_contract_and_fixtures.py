@@ -16,10 +16,12 @@ from well_research_casing import build_global_casing_search
 from well_research_config import DATASET_CATALOG, DATASETS
 from well_research_core import build_ranked_dataset, describe_table, to_jsonable
 from well_research_current import (
+    _well_timeline_event_detail,
     raw_well_records,
     well_applications,
     well_documents,
     well_timeline,
+    well_timeline_event,
 )
 from well_research_decom import build_decom_research
 from well_research_lease import build_lease_information
@@ -476,7 +478,22 @@ def test_regulatory_fixture_covers_apps_documents_and_timeline(
             "document_count": 0,
             "link_method": "source_parent",
         }],
-        "bhp": [{"API_WELL_NUMBER": api, "BHTST_DATE": "2022-02-01", "BHP": "1000", "RESERVOIR_NAME": "R"}],
+        "bhp": [{
+            "FIELD_NAME_CODE": "FIELD",
+            "LEASE_NUMBER": "G1",
+            "COMPLETION_NAME": "COMP",
+            "API_WELL_NUMBER": api,
+            "RESERVOIR_NAME": "R",
+            "BHTST_DATE": "2022-02-01",
+            "SI_TIME": 24,
+            "BHTST_TEMP": 200,
+            "BHTST_SI_PRSS": 1000,
+            "BHTST_MD": 9000,
+            "BHTST_TVD": 8500,
+            "BHTST_PRESSURE": 1100,
+            "REMARK": "Stable",
+            "REGION_CODE": "GOM",
+        }],
         "api_changes": [{"API_WELL_NUMBER": api, "ACTIVITY_DATE": "2022-03-01", "SOURCE_RECORD_ID": "C1", "PREV_API_NUMBER": "123"}],
         "directional_surveys": [{"API_WELL_NUMBER": api, "RECEIPT_DATE": "2022-04-01", "SOURCE_RECORD_ID": "D1", "DOC_ID": "D"}],
         "well_potential_tests": [{"API_WELL_NUMBER": api, "TEST_DATE": "2022-05-01", "SOURCE_RECORD_ID": "P1", "FIELD_NAME": "TEST"}],
@@ -515,6 +532,11 @@ def test_regulatory_fixture_covers_apps_documents_and_timeline(
         "Approval",
         "APM",
     }.issubset(timeline["source_counts"])
+    details = [
+        _well_timeline_event_detail(tmp_path, api, event, [])
+        for event in timeline["sample"]
+    ]
+    assert all(detail["sections"] for detail in details)
 
 
 def test_missing_optional_data_is_not_reported_as_zero(tmp_path):
@@ -524,3 +546,108 @@ def test_missing_optional_data_is_not_reported_as_zero(tmp_path):
     assert applications["warnings"]
     assert raw["total_count"] is None
     assert raw["warnings"]
+
+
+def test_timeline_detail_expands_apm_linked_records(tmp_path, write_parquet):
+    api = "123456789000"
+    fixtures = {
+        "apm_events": [{
+            "api_well_number": api,
+            "application_id": "APP1",
+            "event_id": "APM:APP1:submitted",
+            "event_date": "2024-01-02",
+            "event_end_date": None,
+            "source_family": "APM",
+            "event_type": "submitted",
+            "source_record_id": "APP1",
+            "title": "APM submitted",
+            "summary": "ABANDON",
+            "event_category": "application",
+            "document_count": 1,
+            "link_method": "source_parent",
+        }],
+        "apm_applications": [{
+            "api_well_number": api,
+            "application_id": "APP1",
+            "operation_code": "ABANDON",
+            "borehole_status_code": "PA",
+            "application_status_date": "2024-01-03",
+            "submitted_date": "2024-01-02",
+            "work_commences_date": "2024-01-10",
+            "operator_name": "Operator",
+            "rig_id": "RIG1",
+            "attachment_count": 1,
+            "question_count": 1,
+            "response_count": 1,
+            "resubmittal_count": 1,
+            "verbal_count": 1,
+            "source_duplicate_count": 1,
+        }],
+        "apm_main_prop_narrative": [{
+            "SN_APM": "APP1",
+            "PROCEDURAL_NARRATIVE": "Plug the existing borehole and sidetrack.",
+        }],
+        "apm_questions": [{
+            "SN_APM_QA": "Q1",
+            "SN_APM_FK": "APP1",
+            "QUESTION_NUM": "A",
+            "QUESTION": "Will the borehole be permanently abandoned?",
+        }],
+        "apm_question_responses": [{
+            "SN_APM_QA": "Q1",
+            "RESPONSECODE": "YES",
+            "QA_RESPONSE_TXT": "Cement plugs will be set.",
+        }],
+        "apm_preventers": [{
+            "SN_APM_FK": "APP1",
+            "SN_APM_PREVENTER": "BOP1",
+            "APM_PREVENTER_CD": "ANNULAR",
+        }],
+        "apm_suboperations": [{
+            "SN_APM_FK": "APP1",
+            "SN_APM_SUBOPERATION": "SUB1",
+            "APM_SUBOP_CD": "PERMABAN",
+        }],
+        "apm_resubmittals": [{
+            "SN_APM_FK": "APP1",
+            "RESUBMITTED_DATE": "2024-01-04",
+        }],
+        "apm_verbals": [{
+            "SN_APM_FK": "APP1",
+            "SN_APM_VERBAL": "V1",
+            "VERBAL_PRIORITY": "HIGH",
+            "VERBAL_GIVEN_BY": "Reviewer",
+            "VERBAL_DATE": "2024-01-05",
+        }],
+        "application_attachments": [{
+            "document_id": "DOC1",
+            "parent_type": "APM",
+            "parent_id": "APP1",
+            "api_well_number": api,
+            "document_name": "Procedure",
+            "file_extension": "pdf",
+            "document_date": "2024-01-02",
+            "local_path": "private/path/document.pdf",
+        }],
+    }
+    for dataset_key, rows in fixtures.items():
+        write_parquet(tmp_path, DATASETS[dataset_key], rows)
+
+    detail = well_timeline_event(
+        tmp_path,
+        api,
+        "APM:APP1:submitted",
+    )
+
+    assert detail["event"]["source_family"] == "APM"
+    assert detail["narrative"] == "Plug the existing borehole and sidetrack."
+    sections = {section["key"]: section for section in detail["sections"]}
+    assert sections["questions"]["rows"] == [{
+        "question_number": "A",
+        "question": "Will the borehole be permanently abandoned?",
+        "response_code": "YES",
+        "response": "Cement plugs will be set.",
+    }]
+    assert sections["verbals"]["rows"][0]["SN_APM_VERBAL"] == "V1"
+    assert sections["resubmittals"]["total_count"] == 1
+    assert "local_path" not in sections["attachments"]["rows"][0]

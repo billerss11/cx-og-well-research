@@ -129,6 +129,26 @@ RAW_DATASETS = {
     "well_potential_tests": ("well_potential_tests", "API_WELL_NUMBER"),
 }
 
+BHP_RECORD_ID_SQL = """
+    'BHP:' || MD5(CONCAT_WS(
+        '|',
+        COALESCE(CAST(FIELD_NAME_CODE AS VARCHAR), ''),
+        COALESCE(CAST(LEASE_NUMBER AS VARCHAR), ''),
+        COALESCE(CAST(COMPLETION_NAME AS VARCHAR), ''),
+        COALESCE(CAST(API_WELL_NUMBER AS VARCHAR), ''),
+        COALESCE(CAST(RESERVOIR_NAME AS VARCHAR), ''),
+        COALESCE(CAST(BHTST_DATE AS VARCHAR), ''),
+        COALESCE(CAST(SI_TIME AS VARCHAR), ''),
+        COALESCE(CAST(BHTST_TEMP AS VARCHAR), ''),
+        COALESCE(CAST(BHTST_SI_PRSS AS VARCHAR), ''),
+        COALESCE(CAST(BHTST_MD AS VARCHAR), ''),
+        COALESCE(CAST(BHTST_TVD AS VARCHAR), ''),
+        COALESCE(CAST(BHTST_PRESSURE AS VARCHAR), ''),
+        COALESCE(CAST(REMARK AS VARCHAR), ''),
+        COALESCE(CAST(REGION_CODE AS VARCHAR), '')
+    ))
+"""
+
 
 class ResearchDataError(RuntimeError):
     """Raised when a required local data source cannot be queried."""
@@ -1690,8 +1710,435 @@ def well_timeline_event(
     data = well_timeline(data_dir, api_well_number, None, 100_000)
     for row in data.get("sample", []):
         if str(row.get("event_id")) == event_id:
-            return {"event": row, "warnings": data.get("warnings", [])}
+            return _well_timeline_event_detail(
+                data_dir,
+                api_well_number,
+                row,
+                data.get("warnings", []),
+            )
     return {"event": None, "warnings": data.get("warnings", [])}
+
+
+def _timeline_detail_section(
+    data_dir: Path,
+    *,
+    key: str,
+    title: str,
+    dataset_keys: tuple[str, ...],
+    sql: str,
+    parameters: list[Any],
+    warnings: list[str],
+) -> dict[str, Any] | None:
+    missing = [name for name in dataset_keys if not parquet_path(data_dir, name).is_file()]
+    if missing:
+        warnings.extend(
+            f"Missing optional timeline detail source: {DATASETS[name]}"
+            for name in missing
+        )
+        return None
+    frame = duckdb_df(sql, parameters)
+    private_columns = [
+        column for column in frame.columns if column.casefold() == "local_path"
+    ]
+    if private_columns:
+        frame = frame.drop(columns=private_columns)
+    rows = _records(frame)
+    return {
+        "key": key,
+        "title": title,
+        "columns": [
+            {"key": column, "label": column.replace("_", " ").strip().title()}
+            for column in frame.columns
+        ],
+        "rows": rows,
+        "total_count": len(rows),
+        "truncated": False,
+    }
+
+
+def _well_timeline_event_detail(
+    data_dir: Path,
+    api_well_number: str,
+    event: dict[str, Any],
+    inherited_warnings: list[str],
+) -> dict[str, Any]:
+    """Return the exact source record and linked records behind one timeline event."""
+    source = str(event.get("source_family") or "")
+    source_record_id = str(event.get("source_record_id") or "")
+    normalized_api = norm_api(api_well_number)
+    warnings = list(inherited_warnings)
+    sections: list[dict[str, Any]] = []
+    narrative = event.get("summary")
+
+    def add_section(
+        key: str,
+        title: str,
+        dataset_keys: tuple[str, ...],
+        sql: str,
+        parameters: list[Any],
+    ) -> dict[str, Any] | None:
+        section = _timeline_detail_section(
+            data_dir,
+            key=key,
+            title=title,
+            dataset_keys=dataset_keys,
+            sql=sql,
+            parameters=parameters,
+            warnings=warnings,
+        )
+        if section is not None:
+            sections.append(section)
+        return section
+
+    if source == "APD":
+        add_section(
+            "source-record",
+            "APD source record",
+            ("apd_main",),
+            f"""
+                SELECT *
+                FROM {parquet_sql(data_dir, "apd_main")}
+                WHERE regexp_replace(CAST(API_WELL_NUMBER AS VARCHAR), '[^0-9]', '', 'g') = ?
+                  AND CAST(SN_APD AS VARCHAR) = ?
+                ORDER BY APD_STATUS_DT DESC NULLS LAST
+            """,
+            [normalized_api, source_record_id],
+        )
+        add_section(
+            "questions",
+            "Questions and responses",
+            ("apd_questions", "apd_question_responses"),
+            f"""
+                SELECT
+                    question.QUESTION_NUM AS question_number,
+                    question.QUESTION AS question,
+                    response.QA_RESPONSE_CD AS response_code,
+                    response.QA_RESPONSE_TXT AS response
+                FROM {parquet_sql(data_dir, "apd_questions")} AS question
+                LEFT JOIN {parquet_sql(data_dir, "apd_question_responses")} AS response
+                  ON CAST(question.SN_APD_QA AS VARCHAR)
+                     = CAST(response.SN_APD_QA AS VARCHAR)
+                WHERE CAST(question.SN_APD_FK AS VARCHAR) = ?
+                ORDER BY question.QUESTION_NUM
+            """,
+            [source_record_id],
+        )
+        add_section(
+            "casing",
+            "Casing program",
+            ("apd_casing_intervals", "apd_casing_sections"),
+            f"""
+                SELECT interval.*, section.*
+                FROM {parquet_sql(data_dir, "apd_casing_intervals")} AS interval
+                LEFT JOIN {parquet_sql(data_dir, "apd_casing_sections")} AS section
+                  ON interval.SN_APD_CSG_INTV = section.SN_APD_CSNG_INTV_FK
+                WHERE CAST(interval.SN_APD_FK AS VARCHAR) = ?
+                ORDER BY interval.CSNG_INTV_NUM, section.CASING_SECTION_NUM
+            """,
+            [source_record_id],
+        )
+        add_section(
+            "geology",
+            "Geology",
+            ("apd_geologic",),
+            f"""
+                SELECT *
+                FROM {parquet_sql(data_dir, "apd_geologic")}
+                WHERE CAST(SN_APD AS VARCHAR) = ?
+                ORDER BY TOP_MD NULLS LAST
+            """,
+            [source_record_id],
+        )
+        add_section(
+            "attachments",
+            "Attachments",
+            ("application_attachments",),
+            f"""
+                SELECT *
+                FROM {parquet_sql(data_dir, "application_attachments")}
+                WHERE parent_type = 'APD' AND CAST(parent_id AS VARCHAR) = ?
+                ORDER BY document_date DESC NULLS LAST, document_name
+            """,
+            [source_record_id],
+        )
+
+    elif source == "APM":
+        event_section = add_section(
+            "source-event",
+            "APM source event",
+            ("apm_events",),
+            f"""
+                SELECT *
+                FROM {parquet_sql(data_dir, "apm_events")}
+                WHERE regexp_replace(CAST(api_well_number AS VARCHAR), '[^0-9]', '', 'g') = ?
+                  AND CAST(event_id AS VARCHAR) = ?
+                LIMIT 1
+            """,
+            [normalized_api, str(event.get("event_id"))],
+        )
+        application_id = None
+        if event_section and event_section["rows"]:
+            application_id = event_section["rows"][0].get("application_id")
+        if application_id is None:
+            parts = str(event.get("event_id") or "").split(":", 2)
+            application_id = parts[1] if len(parts) > 1 else source_record_id
+        application_id = str(application_id)
+
+        add_section(
+            "application",
+            "APM application",
+            ("apm_applications",),
+            f"""
+                SELECT *
+                FROM {parquet_sql(data_dir, "apm_applications")}
+                WHERE regexp_replace(CAST(api_well_number AS VARCHAR), '[^0-9]', '', 'g') = ?
+                  AND CAST(application_id AS VARCHAR) = ?
+            """,
+            [normalized_api, application_id],
+        )
+        narrative_section = add_section(
+            "narrative",
+            "Procedural narrative",
+            ("apm_main_prop_narrative",),
+            f"""
+                SELECT *
+                FROM {parquet_sql(data_dir, "apm_main_prop_narrative")}
+                WHERE CAST(SN_APM AS VARCHAR) = ?
+            """,
+            [application_id],
+        )
+        if narrative_section and narrative_section["rows"]:
+            narrative = (
+                narrative_section["rows"][0].get("PROCEDURAL_NARRATIVE")
+                or narrative
+            )
+        add_section(
+            "questions",
+            "Questions and responses",
+            ("apm_questions", "apm_question_responses"),
+            f"""
+                SELECT
+                    question.QUESTION_NUM AS question_number,
+                    question.QUESTION AS question,
+                    response.RESPONSECODE AS response_code,
+                    response.QA_RESPONSE_TXT AS response
+                FROM {parquet_sql(data_dir, "apm_questions")} AS question
+                LEFT JOIN {parquet_sql(data_dir, "apm_question_responses")} AS response
+                  ON CAST(question.SN_APM_QA AS VARCHAR)
+                     = CAST(response.SN_APM_QA AS VARCHAR)
+                WHERE CAST(question.SN_APM_FK AS VARCHAR) = ?
+                ORDER BY question.QUESTION_NUM
+            """,
+            [application_id],
+        )
+        for key, title, dataset_key, order_by in (
+            ("preventers", "Blowout preventers", "apm_preventers", "SN_APM_PREVENTER"),
+            ("suboperations", "Suboperations", "apm_suboperations", "SN_APM_SUBOPERATION"),
+            ("resubmittals", "Resubmittals", "apm_resubmittals", "RESUBMITTED_DATE"),
+            ("verbals", "Verbal communications", "apm_verbals", "VERBAL_DATE"),
+        ):
+            add_section(
+                key,
+                title,
+                (dataset_key,),
+                f"""
+                    SELECT *
+                    FROM {parquet_sql(data_dir, dataset_key)}
+                    WHERE CAST(SN_APM_FK AS VARCHAR) = ?
+                    ORDER BY {order_by}
+                """,
+                [application_id],
+            )
+        add_section(
+            "attachments",
+            "Attachments",
+            ("application_attachments",),
+            f"""
+                SELECT *
+                FROM {parquet_sql(data_dir, "application_attachments")}
+                WHERE parent_type = 'APM' AND CAST(parent_id AS VARCHAR) = ?
+                ORDER BY document_date DESC NULLS LAST, document_name
+            """,
+            [application_id],
+        )
+
+    elif source == "WAR":
+        add_section(
+            "source-record",
+            "Well Activity Report",
+            ("war_main",),
+            f"""
+                SELECT *
+                FROM {parquet_sql(data_dir, "war_main")}
+                WHERE regexp_replace(CAST(API_WELL_NUMBER AS VARCHAR), '[^0-9]', '', 'g') = ?
+                  AND CAST(SN_WAR AS VARCHAR) = ?
+            """,
+            [normalized_api, source_record_id],
+        )
+        remarks_section = add_section(
+            "activity-remarks",
+            "Activity remarks",
+            ("war_text",),
+            f"""
+                SELECT *
+                FROM {parquet_sql(data_dir, "war_text")}
+                WHERE CAST(SN_WAR AS VARCHAR) = ?
+            """,
+            [source_record_id],
+        )
+        if remarks_section and remarks_section["rows"]:
+            narrative = remarks_section["rows"][0].get("TEXT_REMARK") or narrative
+        for key, title, dataset_key, order_by in (
+            ("open-hole", "Open-hole logging", "open_hole_runs", "OPERATIONS_COMPLETED_DATE"),
+            ("tubular", "Tubular summary", "war_tubular", "SN_WAR_CSNG_INTV"),
+        ):
+            add_section(
+                key,
+                title,
+                (dataset_key,),
+                f"""
+                    SELECT *
+                    FROM {parquet_sql(data_dir, dataset_key)}
+                    WHERE CAST(SN_WAR_FK AS VARCHAR) = ?
+                    ORDER BY {order_by} NULLS LAST
+                """,
+                [source_record_id],
+            )
+
+    elif source == "EOR":
+        source_section = add_section(
+            "source-record",
+            "End-of-operations source record",
+            ("eor_main",),
+            f"""
+                SELECT *
+                FROM {parquet_sql(data_dir, "eor_main")}
+                WHERE regexp_replace(CAST(API_WELL_NUMBER AS VARCHAR), '[^0-9]', '', 'g') = ?
+                  AND CAST(SN_EOR AS VARCHAR) = ?
+            """,
+            [normalized_api, source_record_id],
+        )
+        if source_section and source_section["rows"]:
+            narrative = (
+                source_section["rows"][0].get("OPERATIONAL_NARRATIVE") or narrative
+            )
+        for key, title, dataset_key in (
+            ("completions", "Completions", "eor_completions"),
+            ("casing-cuts", "Casing cuts", "eor_cut_casings"),
+            ("markers", "Geological markers", "eor_geomarkers"),
+        ):
+            add_section(
+                key,
+                title,
+                (dataset_key,),
+                f"""
+                    SELECT *
+                    FROM {parquet_sql(data_dir, dataset_key)}
+                    WHERE CAST(SN_EOR_FK AS VARCHAR) = ?
+                """,
+                [source_record_id],
+            )
+        add_section(
+            "perforations",
+            "Perforation intervals",
+            ("eor_completions", "eor_perf"),
+            f"""
+                SELECT perforation.*
+                FROM {parquet_sql(data_dir, "eor_perf")} AS perforation
+                JOIN {parquet_sql(data_dir, "eor_completions")} AS completion
+                  ON perforation.SN_EOR_WELL_COMP_FK = completion.SN_EOR_WELL_COMP
+                WHERE CAST(completion.SN_EOR_FK AS VARCHAR) = ?
+                ORDER BY perforation.PERF_TOP_MD NULLS LAST
+            """,
+            [source_record_id],
+        )
+
+    elif source == "Approval":
+        add_section(
+            "source-record",
+            "Approval source record",
+            ("asset_approvals",),
+            f"""
+                SELECT *
+                FROM {parquet_sql(data_dir, "asset_approvals")}
+                WHERE CAST(approval_event_id AS VARCHAR) = ?
+                  AND LOWER(asset_type) = 'well'
+                  AND regexp_replace(CAST(asset_identifier AS VARCHAR), '[^0-9]', '', 'g') = ?
+            """,
+            [source_record_id, normalized_api],
+        )
+        add_section(
+            "linked-assets",
+            "Linked assets",
+            ("asset_approvals",),
+            f"""
+                SELECT *
+                FROM {parquet_sql(data_dir, "asset_approvals")}
+                WHERE CAST(approval_event_id AS VARCHAR) = ?
+                ORDER BY asset_type, asset_identifier
+            """,
+            [source_record_id],
+        )
+
+    else:
+        source_queries: dict[str, tuple[str, str, list[Any]]] = {
+            "Borehole": (
+                "boreholes",
+                "regexp_replace(CAST(API_WELL_NUMBER AS VARCHAR), '[^0-9]', '', 'g') = ?",
+                [normalized_api],
+            ),
+            "BHP": (
+                "bhp",
+                "regexp_replace(CAST(API_WELL_NUMBER AS VARCHAR), '[^0-9]', '', 'g') = ? AND "
+                f"{BHP_RECORD_ID_SQL} = ?",
+                [normalized_api, source_record_id],
+            ),
+            "API change": (
+                "api_changes",
+                "regexp_replace(CAST(API_WELL_NUMBER AS VARCHAR), '[^0-9]', '', 'g') = ? AND CAST(SOURCE_RECORD_ID AS VARCHAR) = ?",
+                [normalized_api, source_record_id],
+            ),
+            "Directional survey": (
+                "directional_surveys",
+                "regexp_replace(CAST(API_WELL_NUMBER AS VARCHAR), '[^0-9]', '', 'g') = ? AND CAST(SOURCE_RECORD_ID AS VARCHAR) = ?",
+                [normalized_api, source_record_id],
+            ),
+            "Well potential": (
+                "well_potential_tests",
+                "regexp_replace(CAST(API_WELL_NUMBER AS VARCHAR), '[^0-9]', '', 'g') = ? AND CAST(SOURCE_RECORD_ID AS VARCHAR) = ?",
+                [normalized_api, source_record_id],
+            ),
+            "Completion": (
+                "api_well_completions",
+                "regexp_replace(CAST(API_WELL_NUMBER AS VARCHAR), '[^0-9]', '', 'g') = ? AND CAST(SOURCE_RECORD_ID AS VARCHAR) = ?",
+                [normalized_api, source_record_id],
+            ),
+        }
+        if source == "Decommission":
+            stage = source_record_id.split(":")[1] if ":" in source_record_id else ""
+            dataset_key = "decom_prop_well" if stage == "proposed" else "decom_spud_well"
+            source_queries[source] = (
+                dataset_key,
+                "regexp_replace(CAST(API_WELL_NUMBER AS VARCHAR), '[^0-9]', '', 'g') = ?",
+                [normalized_api],
+            )
+        query = source_queries.get(source)
+        if query:
+            dataset_key, condition, parameters = query
+            add_section(
+                "source-record",
+                f"{source} source record",
+                (dataset_key,),
+                f"SELECT * FROM {parquet_sql(data_dir, dataset_key)} WHERE {condition}",
+                parameters,
+            )
+
+    return {
+        "event": event,
+        "narrative": narrative,
+        "sections": sections,
+        "warnings": list(dict.fromkeys(warnings)),
+    }
 
 
 def well_timeline(
@@ -1908,7 +2355,7 @@ def well_timeline(
             "BHP",
             "API_WELL_NUMBER",
             "BHTST_DATE",
-            "BHP",
+            "_TIMELINE_SOURCE_RECORD_ID",
             "bhp_survey",
             "Bottom-hole pressure survey",
             "RESERVOIR_NAME",
@@ -1962,13 +2409,29 @@ def well_timeline(
         if not parquet_path(data_dir, key).is_file():
             missing_sources.append(source_family)
             continue
-        frame = query_api_dataset(
-            data_dir,
-            key,
-            api_column,
-            api_well_number,
-            order_by=date_column,
-        )
+        if key == "bhp":
+            frame = duckdb_df(
+                f"""
+                    SELECT *, {BHP_RECORD_ID_SQL} AS _TIMELINE_SOURCE_RECORD_ID
+                    FROM {parquet_sql(data_dir, key)}
+                    WHERE regexp_replace(
+                        CAST({api_column} AS VARCHAR),
+                        '[^0-9]',
+                        '',
+                        'g'
+                    ) = ?
+                    ORDER BY {date_column}
+                """,
+                [norm_api(api_well_number)],
+            )
+        else:
+            frame = query_api_dataset(
+                data_dir,
+                key,
+                api_column,
+                api_well_number,
+                order_by=date_column,
+            )
         for index, row in enumerate(_records(frame), start=1):
             record_id = row.get(id_column) or f"{source_family}:{index}"
             summary = row.get(summary_column)

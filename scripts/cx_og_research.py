@@ -1334,19 +1334,68 @@ def run(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
             args.api_well_number,
             args.event_id,
         )
+        detail_datasets = {
+            "APD": [
+                "apd_questions",
+                "apd_question_responses",
+                "apd_casing_intervals",
+                "apd_casing_sections",
+                "apd_geologic",
+                "application_attachments",
+            ],
+            "APM": [
+                "apm_applications",
+                "apm_main_prop_narrative",
+                "apm_questions",
+                "apm_question_responses",
+                "apm_preventers",
+                "apm_suboperations",
+                "apm_resubmittals",
+                "apm_verbals",
+                "application_attachments",
+            ],
+            "WAR": ["war_text", "open_hole_runs", "war_tubular"],
+            "EOR": [
+                "eor_completions",
+                "eor_cut_casings",
+                "eor_geomarkers",
+                "eor_perf",
+            ],
+            "Approval": ["asset_approvals"],
+            "BHP": ["bhp"],
+            "API change": ["api_changes"],
+            "Directional survey": ["directional_surveys"],
+            "Well potential": ["well_potential_tests"],
+            "Completion": ["api_well_completions"],
+            "Decommission": ["decom_prop_well", "decom_spud_well"],
+        }
+        source = str((data.get("event") or {}).get("source_family") or "")
+        datasets = list(
+            dict.fromkeys(
+                [
+                    "apd_main",
+                    "apm_events",
+                    "war_main",
+                    "eor_main",
+                    "asset_approvals",
+                    "boreholes",
+                    "bhp",
+                    "api_well_completions",
+                    "api_changes",
+                    "directional_surveys",
+                    "well_potential_tests",
+                    "decom_prop_well",
+                    "decom_spud_well",
+                    *detail_datasets.get(source, []),
+                ]
+            )
+        )
         return _envelope(
             command,
             vars(args),
             data,
             data_dir=data_dir,
-            datasets=[
-                "apd_main",
-                "apm_events",
-                "war_main",
-                "eor_main",
-                "asset_approvals",
-                "boreholes",
-            ],
+            datasets=datasets,
             source_family="BSEE directly well-linked dated records",
             join_identifier="Exact API well number and event identifier",
             warnings=data.get("warnings", []),

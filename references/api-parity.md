@@ -13,6 +13,8 @@ The skill bundles query code and reads published files directly: no `backend` im
 
 Special forms: `fields trajectory-comparison <fields...> --api <api> [--api <api>...]`; `production compare <apis...> --group-by well|completion|product|interval`; `well casing-analysis <api> --source apd|war --version N --units feet|meters`; authority types `LSE|ROW|RUE`.
 
+`well timeline-detail <api> <event-id>` returns the exact source event plus its narrative and linked source sections. It is the CLI drill-down for timeline events; use it instead of inferring detail from the timeline title or summary.
+
 For cathodic protection use `pipelines detail <segment>`; inspect `data.segment` and `data.permit_history.rows`; null means not reported.
 
 Scalar latitude/longitude fields are included in well search, summary, field-well, raw-table, and dossier results. Excluded: Vue/HTTP presentation, rendered maps, geometry, GeoJSON, bathymetry/marine layers, map-only coordinate systems, browser interactions, export buttons, and semantic/vector WAR search. Use JSON `--output` for export and `evidence search` for exact/fuzzy text.
